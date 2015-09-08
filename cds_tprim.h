@@ -563,46 +563,157 @@ void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, int n)
 #   include <unistd.h>
 #endif
 #include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
-#define CDS_TPRIM_TEST_NUM_THREADS 4
+#define CDS_TPRIM_TEST_NUM_THREADS 16
+static int g_errorCount = 0;
 
+#define CDS_TEST_DANCER_NUM_ROUNDS 1000
 typedef struct
 {
-	int threadId;
-	cds_tprim_fastsem_t *sem;
-} test_sem_args;
-
-static void *testSemThreadFunc(void *voidArgs)
+	struct
+    {
+        intptr_t leaderId;
+        intptr_t followerId;
+    } rounds[CDS_TEST_DANCER_NUM_ROUNDS];
+	cds_tprim_fastsem_t queueL, queueF, mutexL, mutexF, rendezvous;
+	int roundIndex;
+} cds_test_dancer_args_t;
+static void *testDancerLeader(void *voidArgs)
 {
-	test_sem_args *args = (test_sem_args*)voidArgs;
-	cds_tprim_fastsem_wait(args->sem);
-	printf("Thread %d acquired the semaphore (count=%d)\n", args->threadId, cds_tprim_fastsem_getvalue(args->sem));
-	sleep(5);
-	cds_tprim_fastsem_post(args->sem);
-	printf("Thread %d released the semaphore (count=%d)\n", args->threadId, cds_tprim_fastsem_getvalue(args->sem));
-	return 0;
+    cds_test_dancer_args_t *args = (cds_test_dancer_args_t*)voidArgs;
+	intptr_t threadId = (intptr_t)pthread_self();
+    int lastRoundIndex = 0;
+    intptr_t zero = 0;
+    for(;;)
+    {
+        zero = 0;
+        cds_tprim_fastsem_wait(&args->mutexL);
+        cds_tprim_fastsem_post(&args->queueL);
+        cds_tprim_fastsem_wait(&args->queueF);
+        /* critical section */
+        if (args->roundIndex < CDS_TEST_DANCER_NUM_ROUNDS)
+        {
+            zero = __sync_fetch_and_add(&args->rounds[args->roundIndex].leaderId, threadId);
+        }
+        cds_tprim_fastsem_wait(&args->rendezvous);
+        lastRoundIndex = __sync_fetch_and_add(&args->roundIndex, 1);
+        /* end critical section */
+        cds_tprim_fastsem_post(&args->mutexL);
+        if (0 != zero)
+        {
+            printf("ERROR: double-write to rounds[%d].leaderId (expected 0, found %p)\n",
+                lastRoundIndex, (void*)zero);
+            ++g_errorCount;
+        }
+        if (lastRoundIndex+1 >= CDS_TEST_DANCER_NUM_ROUNDS)
+        {
+            break;
+        }
+    }
+    return NULL;
+}
+static void *testDancerFollower(void *voidArgs)
+{
+    cds_test_dancer_args_t *args = (cds_test_dancer_args_t*)voidArgs;
+	intptr_t threadId = (intptr_t)pthread_self();
+    int lastRoundIndex = 0;
+    intptr_t zero = 0;
+    for(;;)
+    {
+        zero = 0;
+        cds_tprim_fastsem_wait(&args->mutexF);
+        cds_tprim_fastsem_post(&args->queueF);
+        cds_tprim_fastsem_wait(&args->queueL);
+        /* critical section */
+        lastRoundIndex = __sync_fetch_and_add(&args->roundIndex, 0);
+        if (args->roundIndex < CDS_TEST_DANCER_NUM_ROUNDS)
+        {
+            zero = __sync_fetch_and_add(&args->rounds[args->roundIndex].followerId, threadId);
+        }
+        cds_tprim_fastsem_post(&args->rendezvous);
+        /* end critical section */
+        cds_tprim_fastsem_post(&args->mutexF);
+        if (0 != zero)
+        {
+            printf("ERROR: double-write to rounds[%d].followererId (expected 0, found %p)\n",
+                lastRoundIndex, (void*)zero);
+            ++g_errorCount;
+        }
+        if (lastRoundIndex+1 >= CDS_TEST_DANCER_NUM_ROUNDS)
+        {
+            break;
+        }
+    }
+	return NULL;
 }
 
 int main(int argc, char *argv[])
 {
-	cds_tprim_fastsem_t sem;
-	pthread_t threads[CDS_TPRIM_TEST_NUM_THREADS];
-	test_sem_args args[CDS_TPRIM_TEST_NUM_THREADS];
-	int iThread;
-
-	cds_tprim_fastsem_init(&sem, 2);
-	for(iThread=0; iThread<CDS_TPRIM_TEST_NUM_THREADS; iThread+=1)
+	/*
+	 * Use semaphores to implement a pair of queues: one for leaders,
+	 * one for followers. The queue protects a critical section, which
+	 * should be entered by exactly one of each type at a time.
+	 */
 	{
-		args[iThread].threadId = iThread;
-		args[iThread].sem = &sem;
-		pthread_create(&threads[iThread], NULL, testSemThreadFunc, args+iThread);
-	}
-	for(iThread=0; iThread<CDS_TPRIM_TEST_NUM_THREADS; iThread+=1)
-	{
-		pthread_join(threads[iThread], NULL);
-	}
+		cds_test_dancer_args_t dancerArgs = {};
+		pthread_t *leaderThreads = NULL, *followerThreads = NULL;
+		const int kNumLeaders = 8, kNumFollowers = 8;
+		int iLeader=0, iFollower=0, iRound=0;
+		
+        memset(dancerArgs.rounds, 0, sizeof(dancerArgs.rounds));
+		cds_tprim_fastsem_init(&dancerArgs.queueL, 0);
+		cds_tprim_fastsem_init(&dancerArgs.queueF, 0);
+		cds_tprim_fastsem_init(&dancerArgs.mutexL, 1);
+		cds_tprim_fastsem_init(&dancerArgs.mutexF, 1);
+		cds_tprim_fastsem_init(&dancerArgs.rendezvous, 0);
 
-	cds_tprim_fastsem_destroy(&sem);
+		leaderThreads = (pthread_t*)malloc(kNumLeaders*sizeof(pthread_t));
+		for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
+		{
+			pthread_create(&leaderThreads[iLeader], NULL,
+				testDancerLeader, &dancerArgs);
+		}
+		followerThreads = (pthread_t*)malloc(kNumFollowers*sizeof(pthread_t));
+		for(iFollower=0; iFollower<kNumFollowers; ++iFollower)
+		{
+			pthread_create(&followerThreads[iFollower], NULL,
+				testDancerFollower, &dancerArgs);
+		}
+
+		for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
+		{
+			pthread_join(leaderThreads[iLeader], NULL);
+		}
+		for(iFollower=0; iFollower<kNumFollowers; ++iFollower)
+		{
+			pthread_join(followerThreads[iFollower], NULL);
+		}
+
+		/* verify that each round's leader/follower IDs are non-zero. */
+		for(iRound=0; iRound<CDS_TEST_DANCER_NUM_ROUNDS; ++iRound)
+		{
+			if (0 == dancerArgs.rounds[iRound].leaderId ||
+				0 == dancerArgs.rounds[iRound].followerId)
+			{
+				printf("ERROR: round[%d] = [%p,%p]\n", iRound,
+					(void*)dancerArgs.rounds[iRound].leaderId,
+					(void*)dancerArgs.rounds[iRound].followerId);
+				++g_errorCount;
+			}
+		}
+
+		cds_tprim_fastsem_destroy(&dancerArgs.queueL);
+		cds_tprim_fastsem_destroy(&dancerArgs.queueF);
+		cds_tprim_fastsem_destroy(&dancerArgs.mutexL);
+		cds_tprim_fastsem_destroy(&dancerArgs.mutexF);
+		cds_tprim_fastsem_destroy(&dancerArgs.rendezvous);
+		free(leaderThreads);
+		free(followerThreads);
+	}
+    printf("error count after dancers: %d\n", g_errorCount);
 }
 #endif /*------------------- send self-test section ------------*/
 
