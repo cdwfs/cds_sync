@@ -173,6 +173,50 @@ CDS_TPRIM_DEF void cds_tprim_monsem_post(cds_tprim_monsem_t *ms);
  */
 CDS_TPRIM_DEF void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, int n);
 
+/**
+ * cds_tprim_barrier_t -- A barrier that blocks several threads from
+ * progressing until all threads have reached the barrier.
+ */
+typedef struct
+{
+    int insideCount, threadCount;
+    cds_tprim_fastsem_t mutex, semIn, semOut;
+} cds_tprim_barrier_t;
+
+/** @brief Initialize a barrier object for the provided number of threads. */
+CDS_TPRIM_DEF int cds_tprim_barrier_init(cds_tprim_barrier_t *barrier, int threadCount);
+
+/* @brief Destroy an existing barrier object. */
+CDS_TPRIM_DEF void cds_tprim_barrier_destroy(cds_tprim_barrier_t *barrier);
+
+/* @brief Enters a barrier's critical section. The 1..N-1th threads to enter
+ *        the barrier are put to sleep; the Nth thread wakes threads 0..N-1.
+ *        Must be followed by a matching call to barrier_exit().
+ * @note  Any code between barrier_enter() and barrier_exit() is a type of
+ *        critical section: no thread will enter it until all threads have
+ *        entered, and no thread will exit it until all threads are ready
+ *        to exit.
+ */
+CDS_TPRIM_DEF void cds_tprim_barrier_enter(cds_tprim_barrier_t *barrier);
+
+/* @brief Exits a barrier's critical section. The 1..N-1th threads to exit
+ *        the barrier are put to sleep; the Nth thread wakes threads 0..N-1.
+ *        Must be preceded by a matching call to barrier_enter().
+ * @note  Any code between barrier_enter() and barrier_exit() is a type of
+ *        critical section: no thread will enter it until all threads have
+ *        entered, and no thread will exit it until all threads are ready
+ *        to exit.
+ */
+CDS_TPRIM_DEF void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier);
+
+/** @brief Helper function to call barrier_enter() and barrier_exit() in
+ *         succession, if there's no code to run in the critical section.
+ */
+CDS_TPRIM_DEF CDS_TPRIM_INLINE void cds_tprim_barrier_wait(cds_tprim_barrier_t *barrier)
+{
+    cds_tprim_barrier_enter(barrier);
+    cds_tprim_barrier_exit(barrier);
+}
 
 #ifdef __cplusplus
 }
@@ -560,6 +604,50 @@ void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, int n)
 		cds_tprim_monsem_post(ms);
 	}
 }
+
+
+/* cds_tprim_barrier_t */
+int cds_tprim_barrier_init(cds_tprim_barrier_t *barrier, int threadCount)
+{
+    barrier->insideCount = 0;
+    barrier->threadCount = threadCount;
+    cds_tprim_fastsem_init(&barrier->mutex, 1);
+    cds_tprim_fastsem_init(&barrier->semIn, 0);
+    cds_tprim_fastsem_init(&barrier->semOut, 0);
+    return 0;
+}
+
+void cds_tprim_barrier_destroy(cds_tprim_barrier_t *barrier)
+{
+    cds_tprim_fastsem_destroy(&barrier->mutex);
+    cds_tprim_fastsem_destroy(&barrier->semIn);
+    cds_tprim_fastsem_destroy(&barrier->semOut);
+}
+
+void cds_tprim_barrier_enter(cds_tprim_barrier_t *barrier)
+{
+    cds_tprim_fastsem_wait(&barrier->mutex);
+    barrier->insideCount += 1;
+    if (barrier->insideCount == barrier->threadCount)
+    {
+        cds_tprim_fastsem_postn(&barrier->semIn, barrier->threadCount);
+    }
+    cds_tprim_fastsem_post(&barrier->mutex);
+    cds_tprim_fastsem_wait(&barrier->semIn);
+}
+
+void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier)
+{
+    cds_tprim_fastsem_wait(&barrier->mutex);
+    barrier->insideCount -= 1;
+    if (barrier->insideCount == 0)
+    {
+        cds_tprim_fastsem_postn(&barrier->semOut, barrier->threadCount);
+    }
+    cds_tprim_fastsem_post(&barrier->mutex);
+    cds_tprim_fastsem_wait(&barrier->semOut);
+}
+
 
 #endif /*------------- end implementation section ---------------*/
 
