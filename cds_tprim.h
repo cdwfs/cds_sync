@@ -4,7 +4,8 @@
  * before including this file in *one* C/C++ file to provide the function implementations.
  *
  * For a unit test:
- *   cc -pthread -x c -DCDS_TPRIM_TEST -o [exeFile] cds_tprim.h
+ *   cc -lpthread -std=c89 -g -x c -DCDS_TPRIM_TEST -o [exeFile] cds_tprim.h
+ * Clang users may also pass -fsanitize=thread to enable Clang's ThreadSanitizer feature.
  */
 #if !defined(CDS_TPRIM_H)
 #define CDS_TPRIM_H
