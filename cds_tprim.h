@@ -34,6 +34,10 @@ extern "C"
 #	endif
 #endif
 
+/**
+ * cds_tprim_fastsem_t -- a semaphore guaranteed to stay in user code
+ * unless necessary (i.e. a thread must be awakened or put to sleep).
+ */
 #if defined(_MSC_VER)
 typedef struct
 {
@@ -81,6 +85,13 @@ CDS_TPRIM_DEF void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, int n);
  */
 CDS_TPRIM_DEF int cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem);
 
+/**
+ * cds_tprim_eventcount_t -- an eventcount primitive, which lets you
+ * indicate your interest in waiting for an event (with get()), and
+ * then only actually waiting if nothing else has signaled in the
+ * meantime. This ensures that the waiter only needs to wait if
+ * there's legitimately no event in the queue.
+ */
 #if defined(_MSC_VER)
 typedef struct
 {
@@ -119,6 +130,13 @@ CDS_TPRIM_DEF void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec);
  */
 CDS_TPRIM_DEF void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, int cmp);
 
+/**
+ * cds_tprim_monsem_t -- A monitored semaphore is a semaphore that
+ * allows two-sided waiting. Like a regular semaphore, a consumer can
+ * decrement the semaphore and wait() for the count to be positive
+ * again. A producer can increment the semaphore with post(), but can
+ * also safely wait for the count to be a certain non-negative value.
+ */
 typedef struct
 {
 	int mState;
@@ -126,11 +144,33 @@ typedef struct
 	cds_tprim_fastsem_t mSem;
 } cds_tprim_monsem_t;
 
+/** @brief Initialize a monitored semaphore to the specified value. */
 CDS_TPRIM_DEF int  cds_tprim_monsem_init(cds_tprim_monsem_t *ms, int count);
+
+/** @brief Destroy a monitored semaphore object. */
 CDS_TPRIM_DEF void cds_tprim_monsem_destroy(cds_tprim_monsem_t *ms);
+
+/** @brief Waits for the semaphore value to reach a certain
+ * non-negative value.
+ *  @note In this implementation, only one thread can call wait_for_waiters()
+ *        at a time.
+ */
 CDS_TPRIM_DEF void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount);
+
+/** @brief Decrement the semaphore. If the result is 0 or less, put the
+ *         caller to sleep.
+ */
 CDS_TPRIM_DEF void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms);
+
+/** @brief Increment the semaphore. If the counter was negative, wake a
+ *         thread that was previously put to sleep by wait().
+ */
 CDS_TPRIM_DEF void cds_tprim_monsem_post(cds_tprim_monsem_t *ms);
+
+/** @brief Increment the semaphore counter N times.
+ *  @note  This is functionally equivalent to calling post() N times,
+ *         but may be more efficient on some platforms.
+ */
 CDS_TPRIM_DEF void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, int n);
 
 
@@ -154,6 +194,8 @@ CDS_TPRIM_DEF void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, int n);
 
 #define CDS_TPRIM_MIN(a,b) ( (a)<(b) ? (a) : (b) )
 
+
+/* cds_tprim_fastsem_t */
 int cds_tprim_fastsem_init(cds_tprim_fastsem_t *sem, int n)
 {
 #if defined(_MSC_VER)
@@ -283,6 +325,7 @@ int cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem)
 }
 
 
+/* cds_tprim_eventcount_t */
 int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 {
 #if defined(_MSC_VER)
@@ -338,6 +381,8 @@ void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, int cmp)
 #endif
 }
 
+
+/* cds_tprim_monsem_t */
 #define CDS_TPRIM_MONSEM_COUNT_SHIFT 8
 #define CDS_TPRIM_MONSEM_COUNT_MASK  0xFFFFFF00UL
 #define CDS_TPRIM_MONSEM_COUNT_MAX   ((unsigned int)(CDS_TPRIM_MONSEM_COUNT_MASK) >> (CDS_TPRIM_MONSEM_COUNT_SHIFT))
@@ -490,6 +535,7 @@ void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms)
 	}
 	cds_tprim_monsem_wait_no_spin(ms);
 }
+
 void cds_tprim_monsem_post(cds_tprim_monsem_t *ms)
 {
 #if defined(_MSC_VER)
