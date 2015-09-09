@@ -61,12 +61,6 @@ CDS_TPRIM_DEF void cds_tprim_fastsem_destroy(cds_tprim_fastsem_t *sem);
  */
 CDS_TPRIM_DEF void cds_tprim_fastsem_wait(cds_tprim_fastsem_t *sem);
 
-/** @brief Decrement the semaphore's internal counter. Unlike sem_wait(), this
- *         variant returns immediately if the count is <=0 instead of blocking.
- *  @return 1 if the count was decremented successfully; 0 if not.
- */
-CDS_TPRIM_DEF int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem);
-
 /** @brief Increment the semaphore's internal counter. If the counter is <=0,
  *         this call will wake a thread that had previously called sem_wait().
  */
@@ -142,9 +136,6 @@ typedef struct
 CDS_TPRIM_DEF int  cds_tprim_monsem_init(cds_tprim_monsem_t *ms, int count);
 CDS_TPRIM_DEF void cds_tprim_monsem_destroy(cds_tprim_monsem_t *ms);
 CDS_TPRIM_DEF void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount);
-CDS_TPRIM_DEF void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *ms);
-CDS_TPRIM_DEF int  cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms);
-CDS_TPRIM_DEF int  cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms);
 CDS_TPRIM_DEF void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms);
 CDS_TPRIM_DEF void cds_tprim_monsem_post(cds_tprim_monsem_t *ms);
 CDS_TPRIM_DEF void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, int n);
@@ -192,7 +183,7 @@ void cds_tprim_fastsem_destroy(cds_tprim_fastsem_t *sem)
 #endif
 }
 
-int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
+static CDS_TPRIM_INLINE int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
 {
 #if defined(_MSC_VER)
 	LONG count = InterlockedExchangeAdd(&sem->mCount, 0);
@@ -221,7 +212,7 @@ int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
 #endif
 }
 
-static void cds_tprim_fastsem_wait_no_spin(cds_tprim_fastsem_t *sem)
+static CDS_TPRIM_INLINE void cds_tprim_fastsem_wait_no_spin(cds_tprim_fastsem_t *sem)
 {
 #if defined(_MSC_VER)
 	if (InterlockedExchangeAdd(&sem->mCount, -1) < 1)
@@ -380,7 +371,7 @@ void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, int cmp)
 #define CDS_TPRIM_MONSEM_WAIT_FOR_MASK 0xFF
 #define CDS_TPRIM_MONSEM_WAIT_FOR_MAX ((CDS_TPRIM_MONSEM_WAIT_FOR_MASK) >> (CDS_TPRIM_MONSEM_WAIT_FOR_SHIFT))
 
-int  cds_tprim_monsem_init(cds_tprim_monsem_t *ms, int count)
+int cds_tprim_monsem_init(cds_tprim_monsem_t *ms, int count)
 {
 	assert(count >= 0);
 #if defined(_MSC_VER)
@@ -442,7 +433,8 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
 	}
 #endif
 }
-void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *ms)
+
+static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *ms)
 {
 #if defined(_MSC_VER)
 #else
@@ -463,7 +455,8 @@ void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *ms)
 	}
 #endif
 }
-int  cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
+
+static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
 {
 #if defined(_MSC_VER)
 #else
@@ -488,7 +481,8 @@ int  cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
 	}
 #endif
 }
-int  cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms)
+
+static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms)
 {
 #if defined(_MSC_VER)
 #else
