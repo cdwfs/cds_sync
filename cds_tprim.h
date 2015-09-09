@@ -190,12 +190,11 @@ static CDS_TPRIM_INLINE int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
 	}
 	return 0;
 #else
-	int count = __sync_fetch_and_add(&sem->mCount, 0);
+	int count = __atomic_load_n(&sem->mCount, __ATOMIC_ACQUIRE);
 	while(count > 0)
 	{
 		int newCount = count-1;
-		count = __sync_val_compare_and_swap(&sem->mCount, count, newCount);
-		if (count == newCount)
+		if (__atomic_compare_exchange_n(&sem->mCount, &count, newCount, 1, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
 		{
 			return 1;
 		}
@@ -213,7 +212,7 @@ static CDS_TPRIM_INLINE void cds_tprim_fastsem_wait_no_spin(cds_tprim_fastsem_t 
 		WaitForSingleObject(sem->mHandle, INFINITE);
 	}
 #else
-	if (__sync_fetch_and_add(&sem->mCount, -1) < 1)
+	if (__atomic_fetch_add(&sem->mCount, -1, __ATOMIC_ACQ_REL) < 1)
 	{
 		sem_wait(&sem->mSem);
 	}
@@ -241,8 +240,7 @@ void cds_tprim_fastsem_post(cds_tprim_fastsem_t *sem)
 		ReleaseSemaphore(sem->mHandle, 1, 0);
 	}
 #else
-	int oldCount = __sync_fetch_and_add(&sem->mCount, 1);
-	if (oldCount < 0)
+	if (__atomic_fetch_add(&sem->mCount, 1, __ATOMIC_ACQ_REL) < 0)
 	{
 		sem_post(&sem->mSem);
 	}
@@ -260,7 +258,7 @@ void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, int n)
 		ReleaseSemaphore(sem->mHandle, numToWake, 0);
 	}
 #else
-	int oldCount = __sync_fetch_and_add(&sem->mCount, n);
+	int oldCount = __atomic_fetch_add(&sem->mCount, n, __ATOMIC_ACQ_REL);
 	if (oldCount < 0)
 	{
 		int numWaiters = -oldCount;
@@ -280,7 +278,7 @@ int cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem)
 #if defined(_MSC_VER)
     return (int)InterlockedExchangeAdd(&sem->mCount, 0);
 #else
-	return __sync_fetch_and_add(&sem->mCount, 0);
+	return __atomic_load_n(&sem->mCount, __ATOMIC_SEQ_CST);
 #endif
 }
 
@@ -291,7 +289,7 @@ int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 #else
 	pthread_cond_init(&ec->mCond, 0);
 	pthread_mutex_init(&ec->mMtx, 0);
-	__sync_fetch_and_and(&ec->mCount, 0); /* mCount=0 */
+    __atomic_store_n(&ec->mCount, 0, __ATOMIC_RELAXED);
 	return 0;
 #endif	
 }
@@ -307,24 +305,20 @@ int cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
 {
 #if defined(_MSC_VER)
 #else
-	return __sync_fetch_and_or(&ec->mCount, 1);
+	return __atomic_fetch_or(&ec->mCount, 1, __ATOMIC_ACQUIRE);
 #endif	
 }
 void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
 {
 #if defined(_MSC_VER)
 #else
-	int key = __sync_fetch_and_add(&ec->mCount, 0);
+	int key = __atomic_fetch_add(&ec->mCount, 0, __ATOMIC_SEQ_CST);
 	if (key & 1)
 	{
-		int newKey = (key+2) & ~1;
 		pthread_mutex_lock(&ec->mMtx);
-		key = __sync_val_compare_and_swap(&ec->mCount, key, newKey);
-		while (key != newKey)
+		while (!__atomic_compare_exchange_n(&ec->mCount, &key, (key+2) & ~1, 1, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
 		{
-			/* spin */
-			newKey = (key+2) & ~1;
-			key = __sync_val_compare_and_swap(&ec->mCount, key, newKey);			
+            /* spin */
 		}
 		pthread_mutex_unlock(&ec->mMtx);
 		pthread_cond_broadcast(&ec->mCond);
@@ -336,7 +330,7 @@ void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, int cmp)
 #if defined(_MSC_VER)
 #else
 	pthread_mutex_lock(&ec->mMtx);
-	if ((__sync_fetch_and_add(&ec->mCount, 0) & ~1) == (cmp & -1))
+    if ((__atomic_load_n(&ec->mCount, __ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
 	{
 		pthread_cond_wait(&ec->mCond, &ec->mMtx);
 	}
@@ -377,7 +371,7 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
 	assert( waitForCount > 0 && waitForCount < CDS_TPRIM_MONSEM_WAIT_FOR_MAX );
 #if defined(_MSC_VER)
 #else
-	state = __sync_fetch_and_add(&ms->mState, 0);
+	state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
 	for(;;)
 	{
 		int newState, ec;
@@ -390,13 +384,12 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
 		newState = (curCount     << CDS_TPRIM_MONSEM_COUNT_SHIFT)
                  | (waitForCount << CDS_TPRIM_MONSEM_WAIT_FOR_SHIFT);
 		ec = cds_tprim_eventcount_get(&ms->mEc);
-		state = __sync_val_compare_and_swap(&ms->mState, state, newState);
-		if (state != newState)
+        if (!__atomic_compare_exchange_n(&ms->mState, &state, newState, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
 		{
 			continue; /* retry; state was reloaded */
 		}
 		cds_tprim_eventcount_wait(&ms->mEc, ec);
-		state = __sync_fetch_and_add(&ms->mState, 0);
+        state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
 	}
 	for(;;)
 	{
@@ -405,8 +398,7 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
 		{
 			return;
 		}
-		state = __sync_val_compare_and_swap(&ms->mState, state, newState);
-		if (state == newState)
+		if (__atomic_compare_exchange_n(&ms->mState, &state, newState, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
 		{
 			return;
 		}
@@ -420,7 +412,7 @@ static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *m
 #if defined(_MSC_VER)
 #else
 	/* int prevState = ((count-1)<<COUNT_SHIFT) | (state & WAIT_FOR_MASK); */
-	int prevState = __sync_fetch_and_add(&ms->mState, (-1)<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
+	int prevState = __atomic_fetch_add(&ms->mState, (-1)<<CDS_TPRIM_MONSEM_COUNT_SHIFT, __ATOMIC_ACQ_REL);
 	int prevCount = prevState >> CDS_TPRIM_MONSEM_COUNT_SHIFT; /* arithmetic shift is intentional */
 	if (prevCount <= 0)
 	{
@@ -442,7 +434,7 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
 #if defined(_MSC_VER)
 #else
 	/* See if we can decrement the count before preparing the wait. */
-	int state = __sync_fetch_and_add(&ms->mState, 0);
+	int state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
 	for(;;)
 	{
 		int newState;
@@ -453,8 +445,7 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
 		/* newState = ((count-1)<<COUNT_SHIFT) | (state & WAIT_FOR_MASK); */
 		newState = state - (1<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
 		assert( (newState >> CDS_TPRIM_MONSEM_COUNT_SHIFT) >= 0 );
-		state = __sync_val_compare_and_swap(&ms->mState, state, newState);
-		if (state == newState)
+        if (__atomic_compare_exchange_n(&ms->mState, &state, newState, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
 		{
 			return 1;
 		}
@@ -467,19 +458,18 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms
 {
 #if defined(_MSC_VER)
 #else
-	int state = __sync_fetch_and_add(&ms->mState, 0);
+	int state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
 	for(;;)
 	{
-		int count, newState;
-		count = state >> CDS_TPRIM_MONSEM_COUNT_SHIFT;
+		int newState;
+		int count = state >> CDS_TPRIM_MONSEM_COUNT_SHIFT;
 		if (count <= 0)
 		{
 			return 0;
 		}
 		/* zero out the count */
 		newState = state & CDS_TPRIM_MONSEM_WAIT_FOR_MASK;
-		state = __sync_val_compare_and_swap(&ms->mState, state, newState);
-		if (state == newState)
+        if (__atomic_compare_exchange_n(&ms->mState, &state, newState, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
 		{
 			return count;
 		}
@@ -505,7 +495,7 @@ void cds_tprim_monsem_post(cds_tprim_monsem_t *ms)
 #if defined(_MSC_VER)
 #else
 	const int inc = 1;
-	int prev = __sync_fetch_and_add(&ms->mState, inc<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
+	int prev = __atomic_fetch_add(&ms->mState, inc<<CDS_TPRIM_MONSEM_COUNT_SHIFT, __ATOMIC_ACQ_REL);
 	int count = (prev >> CDS_TPRIM_MONSEM_COUNT_SHIFT);
 	assert(count < 0  || ( (unsigned int)count < (CDS_TPRIM_MONSEM_COUNT_MAX-2) ));
 	if (count < 0)
@@ -568,10 +558,10 @@ static void *testDancerLeader(void *voidArgs)
         /* critical section */
         if (args->roundIndex < CDS_TEST_DANCER_NUM_ROUNDS)
         {
-            zero = __sync_fetch_and_add(&args->rounds[args->roundIndex].leaderId, threadId);
+            zero = __atomic_fetch_add(&args->rounds[args->roundIndex].leaderId, threadId, __ATOMIC_SEQ_CST);
         }
         cds_tprim_fastsem_wait(&args->rendezvous);
-        lastRoundIndex = __sync_fetch_and_add(&args->roundIndex, 1);
+        lastRoundIndex = __atomic_fetch_add(&args->roundIndex, 1, __ATOMIC_SEQ_CST);
         /* end critical section */
         cds_tprim_fastsem_post(&args->mutexL);
         if (0 != zero)
@@ -600,10 +590,10 @@ static void *testDancerFollower(void *voidArgs)
         cds_tprim_fastsem_post(&args->queueF);
         cds_tprim_fastsem_wait(&args->queueL);
         /* critical section */
-        lastRoundIndex = __sync_fetch_and_add(&args->roundIndex, 0);
+        lastRoundIndex = __atomic_load_n(&args->roundIndex, __ATOMIC_SEQ_CST);
         if (args->roundIndex < CDS_TEST_DANCER_NUM_ROUNDS)
         {
-            zero = __sync_fetch_and_add(&args->rounds[args->roundIndex].followerId, threadId);
+            zero = __atomic_fetch_add(&args->rounds[args->roundIndex].followerId, threadId, __ATOMIC_SEQ_CST);
         }
         cds_tprim_fastsem_post(&args->rendezvous);
         /* end critical section */
