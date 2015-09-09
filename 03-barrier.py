@@ -96,25 +96,26 @@ semOut.wait() # last thread through here locks semOut behind it
 #   [critical section]
 #   barrier.exit()
 class Barrier(threadCount):
-  self.insideCount = 0
-  self.threadCount = threadCount
-  self.mutex  = Semaphore(1)
-  self.semIn  = Semaphore(0)
-  self.semOut = Semaphore(0)
-def enter():
-  self.mutex.wait()
-  self.insideCount += 1
-  if self.insideCount == self.threadCount:
-    self.semIn.signalN(self.threadCount)
-  self.mutex.signal()
-  self.semIn.wait()
-def exit():
-  self.mutex.wait()
-  self.insideCount -= 1
-  if self.insideCount == 0:
-    self.semOut.signalN(self.threadCount)
-  self.mutex.signal()
-  self.semOut.wait()
-def waitAt():
-  self.enter()
-  self.exit()
+  def __init__(self):
+    self.insideCount = 0
+    self.threadCount = threadCount
+    self.mutex  = Semaphore(1)
+    self.semIn  = Semaphore(0)
+    self.semOut = Semaphore(0)
+  def enter(self):
+    self.mutex.wait()
+    self.insideCount += 1
+    if self.insideCount == self.threadCount:
+      self.semIn.signalN(self.threadCount)
+    self.mutex.signal()
+    self.semIn.wait()
+  def exit():
+    self.mutex.wait()
+    self.insideCount -= 1
+    if self.insideCount == 0:
+      self.semOut.signalN(self.threadCount)
+    self.mutex.signal()
+    self.semOut.wait()
+  def waitAt():
+    self.enter()
+    self.exit()
