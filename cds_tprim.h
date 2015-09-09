@@ -119,19 +119,12 @@ CDS_TPRIM_DEF void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec);
  */
 CDS_TPRIM_DEF void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, int cmp);
 
-#if defined (_MSC_VER)
-typedef struct
-{
-	
-} cds_tprim_monsem_t;
-#else
 typedef struct
 {
 	int mState;
 	cds_tprim_eventcount_t mEc;
 	cds_tprim_fastsem_t mSem;
 } cds_tprim_monsem_t;
-#endif
 
 CDS_TPRIM_DEF int  cds_tprim_monsem_init(cds_tprim_monsem_t *ms, int count);
 CDS_TPRIM_DEF void cds_tprim_monsem_destroy(cds_tprim_monsem_t *ms);
@@ -229,7 +222,6 @@ static CDS_TPRIM_INLINE void cds_tprim_fastsem_wait_no_spin(cds_tprim_fastsem_t 
 
 void cds_tprim_fastsem_wait(cds_tprim_fastsem_t *sem)
 {
-#if defined(_MSC_VER)
 	int spin_count = 1;
 	while(spin_count--)
 	{
@@ -239,24 +231,12 @@ void cds_tprim_fastsem_wait(cds_tprim_fastsem_t *sem)
 		}
 	}
 	cds_tprim_fastsem_wait_no_spin(sem);
-#else
-	int spin_count = 1;
-	while(spin_count--)
-	{
-		if (cds_tprim_fastsem_trywait(sem) )
-		{
-			return;
-		}
-	}
-	cds_tprim_fastsem_wait_no_spin(sem);
-#endif
 }
 
 void cds_tprim_fastsem_post(cds_tprim_fastsem_t *sem)
 {
 #if defined(_MSC_VER)
-	LONG oldCount = InterlockedExchangeAdd(&sem->mCount, 1);
-	if (oldCount < 0)
+	if (InterlockedExchangeAdd(&sem->mCount, 1) < 0)
 	{
 		ReleaseSemaphore(sem->mHandle, 1, 0);
 	}
@@ -390,6 +370,7 @@ void cds_tprim_monsem_destroy(cds_tprim_monsem_t *ms)
 	cds_tprim_eventcount_destroy(&ms->mEc);
 #endif
 }
+
 void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
 {
 	int state;
@@ -506,10 +487,9 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms
 	}
 #endif
 }
+
 void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms)
 {
-#if defined(_MSC_VER)
-#else
 	int spinCount = 1; /* rrGetSpintCount() */
 	while(spinCount -= 1)
 	{
@@ -519,13 +499,12 @@ void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms)
 		}
 	}
 	cds_tprim_monsem_wait_no_spin(ms);
-#endif
 }
 void cds_tprim_monsem_post(cds_tprim_monsem_t *ms)
 {
 #if defined(_MSC_VER)
 #else
-	int inc = 1;
+	const int inc = 1;
 	int prev = __sync_fetch_and_add(&ms->mState, inc<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
 	int count = (prev >> CDS_TPRIM_MONSEM_COUNT_SHIFT);
 	assert(count < 0  || ( (unsigned int)count < (CDS_TPRIM_MONSEM_COUNT_MAX-2) ));
@@ -535,17 +514,15 @@ void cds_tprim_monsem_post(cds_tprim_monsem_t *ms)
 	}
 #endif
 }
+
 void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, int n)
 {
-#if defined(_MSC_VER)
-#else
 	int i;
 	assert(n > 0);
 	for(i=0; i<n; i+=1)
 	{
 		cds_tprim_monsem_post(ms);
 	}
-#endif
 }
 
 #endif /*------------- end implementation section ---------------*/
