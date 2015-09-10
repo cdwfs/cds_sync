@@ -19,18 +19,22 @@ extern "C"
 {
 #endif
 
-
 #if defined(_MSC_VER)
 #   define CDS_TPRIM_PLATFORM_WINDOWS
 #elif defined(__APPLE__) && defined(__MACH__)
 #   define CDS_TPRIM_PLATFORM_OSX
-#elif defined(_POSIX_VERSION) && (_POSIX_VERSION >= 200112L)
-#   define CDS_TPRIM_PLATFORM_POSIX
+#elif defined(unix) || defined(__unix__) || defined(__unix)
+#   include <unistd.h>
+#   if defined(_POSIX_THREADS) && defined(_POSIX_SEMAPHORES)
+#       define CDS_TPRIM_PLATFORM_POSIX
+#   else
+#       error Unsupported compliler/platform (non-POSIX unix)
+#   endif
 #else
 #   error Unsupported compiler/platform
 #endif
 
-#ifdef CDS_TPRIM_STATIC
+#if defined(CDS_TPRIM_STATIC)
 #   define CDS_TPRIM_DEF static
 #else
 #   define CDS_TPRIM_DEF extern
