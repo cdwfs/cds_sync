@@ -922,11 +922,12 @@ int main(int argc, char *argv[])
      * should be entered by exactly one of each type at a time.
      */
     {
-        cds_test_dancer_args_t dancerArgs = {0};
+        cds_test_dancer_args_t dancerArgs;
         cds_tprim_thread_t *leaderThreads = NULL, *followerThreads = NULL;
         const int kNumLeaders = 8, kNumFollowers = 8;
         int iLeader=0, iFollower=0, iRound=0;
 
+        dancerArgs.roundIndex = 0;
         memset(dancerArgs.rounds, 0, sizeof(dancerArgs.rounds));
         cds_tprim_fastsem_init(&dancerArgs.queueL, 0);
         cds_tprim_fastsem_init(&dancerArgs.queueF, 0);
