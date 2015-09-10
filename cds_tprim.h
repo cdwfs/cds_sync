@@ -96,7 +96,8 @@ extern "C"
     typedef struct
     {
         CONDITION_VARIABLE mCond;
-        /* TODO */
+        CRITICAL_SECTION mCrit;
+        LONG mCount;
     } cds_tprim_eventcount_t;
 #else
     typedef struct
@@ -245,7 +246,9 @@ int cds_tprim_fastsem_init(cds_tprim_fastsem_t *sem, int n)
 #if defined(_MSC_VER)
     sem->mCount = n;
     sem->mHandle = CreateSemaphore(NULL, 0, LONG_MAX, NULL);
-    return 0; /* TODO: check return value of CreateSemaphore() */
+    if (sem->mHandle == NULL)
+        return GetLastError();
+    return 0;
 #else
     sem->mCount = n;
     int err = sem_init(&sem->mSem, 0, 0);
@@ -265,10 +268,12 @@ void cds_tprim_fastsem_destroy(cds_tprim_fastsem_t *sem)
 static CDS_TPRIM_INLINE int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
 {
 #if defined(_MSC_VER)
-    LONG count = InterlockedExchangeAdd(&sem->mCount, 0);
+    LONG count = sem->mCount;
     while(count > 0)
     {
-        if (InterlockedCompareExchange(&sem->mCount, count-1, count) == count)
+        LONG newCount = count-1;
+        count = InterlockedCompareExchange(&sem->mCount, newCount, count);
+        if (count != newCount)
         {
             return 1;
         }
@@ -361,7 +366,7 @@ void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, int n)
 int cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem)
 {
 #if defined(_MSC_VER)
-    return (int)InterlockedExchangeAdd(&sem->mCount, 0);
+    return (int)&sem->mCount;
 #else
     return __atomic_load_n(&sem->mCount, __ATOMIC_SEQ_CST);
 #endif
@@ -372,6 +377,10 @@ int cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem)
 int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 {
 #if defined(_MSC_VER)
+    InitializeConditionVariable(&ec->mCond);
+    InitializeCriticalSection(&ec->mCrit);
+    ec->mCount = 0;
+    return 0;
 #else
     pthread_cond_init(&ec->mCond, 0);
     pthread_mutex_init(&ec->mMtx, 0);
@@ -382,6 +391,8 @@ int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec)
 {
 #if defined(_MSC_VER)
+    /* Windows CONDITION_VARIABLE object do not need to be destroyed. */
+    DeleteCriticalSection(&ec->mCrit);
 #else
     pthread_cond_destroy(&ec->mCond);
     pthread_mutex_destroy(&ec->mMtx);
@@ -390,6 +401,7 @@ void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec)
 int cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
 {
 #if defined(_MSC_VER)
+    return InterlockedOrAcquire(&ec->mCount, 1);
 #else
     return __atomic_fetch_or(&ec->mCount, 1, __ATOMIC_ACQUIRE);
 #endif
@@ -397,6 +409,23 @@ int cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
 void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
 {
 #if defined(_MSC_VER)
+    LONG key = ec->mCount;
+    if (key & 1)
+    {
+        EnterCriticalSection(&ec->mCrit);
+        for(;;)
+        {
+            LONG newKey = (key+2) & ~1;
+            key = InterlockedCompareExchange(&ec->mCount, newKey, key);
+            if (key == newKey)
+            {
+                break;
+            }
+            /* spin */
+        }
+        LeaveCriticalSection(&ec->mCrit);
+        WakeAllConditionVariable(&ec->mCond);
+    }
 #else
     int key = __atomic_fetch_add(&ec->mCount, 0, __ATOMIC_SEQ_CST);
     if (key & 1)
@@ -414,6 +443,12 @@ void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
 void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, int cmp)
 {
 #if defined(_MSC_VER)
+    EnterCriticalSection(&ec->mCrit);
+    while((ec->mCount & ~1) == (cmp & ~1))
+    {
+        SleepConditionVariableCS(&ec->mCond, &ec->mCrit, INFINITE);
+    }
+    LeaveCriticalSection(&ec->mCrit);
 #else
     pthread_mutex_lock(&ec->mMtx);
     if ((__atomic_load_n(&ec->mCount, __ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
@@ -452,6 +487,40 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
     int state;
     assert( waitForCount > 0 && waitForCount < CDS_TPRIM_MONSEM_WAIT_FOR_MAX );
 #if defined(_MSC_VER)
+    state = ms->mState;
+    for(;;)
+    {
+        int newState, ec;
+        int curCount = state >> CDS_TPRIM_MONSEM_COUNT_SHIFT;
+        if ( -curCount == waitForCount )
+        {
+            break;
+        }
+        newState = (curCount     << CDS_TPRIM_MONSEM_COUNT_SHIFT)
+                 | (waitForCount << CDS_TPRIM_MONSEM_WAIT_FOR_SHIFT);
+        ec = cds_tprim_eventcount_get(&ms->mEc);
+        state = InterlockedCompareExchange(&ms->mState, newState, state);
+        if (state != newState)
+        {
+            continue; /* retry; state was reloaded */
+        }
+        cds_tprim_eventcount_wait(&ms->mEc, ec);
+        state = ms->mState;
+    }
+    for(;;)
+    {
+        int newState = state & CDS_TPRIM_MONSEM_COUNT_MASK;
+        if (state == newState)
+        {
+            return; /* nothing to do */
+        }
+        state = InterlockedCompareExchange(&ms->mState, newState, state);
+        if (state == newState)
+        {
+            return; /* updated successfully */
+        }
+        /* retry; state was reloaded */
+    }
 #else
     state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
     for(;;)
@@ -462,7 +531,6 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
         {
             break;
         }
-
         newState = (curCount     << CDS_TPRIM_MONSEM_COUNT_SHIFT)
                  | (waitForCount << CDS_TPRIM_MONSEM_WAIT_FOR_SHIFT);
         ec = cds_tprim_eventcount_get(&ms->mEc);
@@ -516,6 +584,25 @@ static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *m
 static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
 {
 #if defined(_MSC_VER)
+    /* See if we can decrement the count before preparing the wait. */
+    int state = ms->mState;
+    for(;;)
+    {
+        int newState;
+        if (state < (1<<CDS_TPRIM_MONSEM_COUNT_SHIFT) )
+        {
+            return 0;
+        }
+        /* newState = ((count-1)<<COUNT_SHIFT) | (state & WAIT_FOR_MASK); */
+        newState = state - (1<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
+        assert( (newState >> CDS_TPRIM_MONSEM_COUNT_SHIFT) >= 0 );
+        state = InterlockedCompareExchange(&ms->mState, newState, state);
+        if (state == newState)
+        {
+            return 1;
+        }
+        /* state was reloaded; try again, with optional backoff. */
+    }
 #else
     /* See if we can decrement the count before preparing the wait. */
     int state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
@@ -541,6 +628,24 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
 static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms)
 {
 #if defined(_MSC_VER)
+    int state = ms->mState;
+    for(;;)
+    {
+        int newState;
+        int count = state >> CDS_TPRIM_MONSEM_COUNT_SHIFT;
+        if (count <= 0)
+        {
+            return 0;
+        }
+        /* zero out the count */
+        newState = state & CDS_TPRIM_MONSEM_WAIT_FOR_MASK;
+        state = InterlockedCompareExchange(&ms->mState, newState, state);
+        if (state == newState)
+        {
+            return count;
+        }
+        /* state was reloaded; try again, with optional backoff. */
+    }
 #else
     int state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
     for(;;)
