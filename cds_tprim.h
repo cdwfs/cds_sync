@@ -28,7 +28,7 @@ extern "C"
 #   if defined(_POSIX_THREADS) && defined(_POSIX_SEMAPHORES)
 #       define CDS_TPRIM_PLATFORM_POSIX
 #   else
-#       error Unsupported compliler/platform (non-POSIX unix)
+#       error Unsupported compiler/platform (non-POSIX unix)
 #   endif
 #else
 #   error Unsupported compiler/platform
