@@ -3,9 +3,13 @@
  *   #define CDS_TPRIM_IMPLEMENTATION
  * before including this file in *one* C/C++ file to provide the function implementations.
  *
- * For a unit test:
+ * For a unit test on gcc/Clang:
  *   cc -lpthread -std=c89 -g -x c -DCDS_TPRIM_TEST -o [exeFile] cds_tprim.h
  * Clang users may also pass -fsanitize=thread to enable Clang's ThreadSanitizer feature.
+ *
+ * For a unit test on Visual C++:
+ *   "%VS120COMNTOOLS%\..\..\VC\vcvarsall.bat"
+ *   cl -nologo -TC -DCDS_TPRIM_TEST cds_tprim.h
  */
 #if !defined(CDS_TPRIM_H)
 #define CDS_TPRIM_H
@@ -755,15 +759,29 @@ void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier)
 
 #if defined(CDS_TPRIM_TEST)
 
-#if defined(_MSC_VER)
-#   error Self-test not supported on Windows yet.
-#else
-#   include <unistd.h>
-#endif
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(_MSC_VER)
+typedef HANDLE cds_tprim_thread_t;
+typedef DWORD cds_tprim_threadproc_return_t;
+static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, LPTHREAD_START_ROUTINE startProc, void *args) { *pThread = CreateThread(NULL,0,startProc,args,0,NULL); }
+static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { WaitForSingleObject(thread, INFINITE); CloseHandle(thread); }
+static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)GetCurrentThreadId(); }
+#   define CDS_TPRIM_ATOMIC_LOAD(pDest) (*(pDest))
+#   define CDS_TPRIM_ATOMIC_FETCH_ADD(pDest,n) InterlockedExchangeAdd( (pDest), (n) )
+#else
+#   include <unistd.h>
+typedef pthread_t cds_tprim_thread_t;
+typedef void* cds_tprim_threadproc_return_t;
+static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, void *(*startProc)(void*), void *args) { pthread_create(pThread,NULL,startProc,args); }
+static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { pthread_join(thread, NULL); }
+static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)pthread_self(); }
+#   define CDS_TPRIM_ATOMIC_LOAD(pDest)      __atomic_load_n( (pDest), __ATOMIC_SEQ_CST )
+#   define CDS_TPRIM_ATOMIC_FETCH_ADD(pDest,n) __atomic_fetch_add( (pDest), (n), __ATOMIC_SEQ_CST )
+#endif
 
 #define CDS_TPRIM_TEST_NUM_THREADS 16
 static int g_errorCount = 0;
@@ -773,18 +791,18 @@ typedef struct
 {
     struct
     {
-        intptr_t leaderId;
-        intptr_t followerId;
+        int leaderId;
+        int followerId;
     } rounds[CDS_TEST_DANCER_NUM_ROUNDS];
     cds_tprim_fastsem_t queueL, queueF, mutexL, mutexF, rendezvous;
     int roundIndex;
 } cds_test_dancer_args_t;
-static void *testDancerLeader(void *voidArgs)
+static cds_tprim_threadproc_return_t testDancerLeader(void *voidArgs)
 {
     cds_test_dancer_args_t *args = (cds_test_dancer_args_t*)voidArgs;
-    intptr_t threadId = (intptr_t)pthread_self();
+    int threadId = cds_tprim_thread_id();
     int lastRoundIndex = 0;
-    intptr_t zero = 0;
+    int zero = 0;
     for(;;)
     {
         zero = 0;
@@ -794,10 +812,10 @@ static void *testDancerLeader(void *voidArgs)
         /* critical section */
         if (args->roundIndex < CDS_TEST_DANCER_NUM_ROUNDS)
         {
-            zero = __atomic_fetch_add(&args->rounds[args->roundIndex].leaderId, threadId, __ATOMIC_SEQ_CST);
+            zero = CDS_TPRIM_ATOMIC_FETCH_ADD(&args->rounds[args->roundIndex].leaderId, threadId);
         }
         cds_tprim_fastsem_wait(&args->rendezvous);
-        lastRoundIndex = __atomic_fetch_add(&args->roundIndex, 1, __ATOMIC_SEQ_CST);
+        lastRoundIndex = CDS_TPRIM_ATOMIC_FETCH_ADD(&args->roundIndex, 1);
         /* end critical section */
         cds_tprim_fastsem_post(&args->mutexL);
         if (0 != zero)
@@ -811,14 +829,14 @@ static void *testDancerLeader(void *voidArgs)
             break;
         }
     }
-    return NULL;
+    return (cds_tprim_threadproc_return_t)NULL;
 }
-static void *testDancerFollower(void *voidArgs)
+static cds_tprim_threadproc_return_t testDancerFollower(void *voidArgs)
 {
     cds_test_dancer_args_t *args = (cds_test_dancer_args_t*)voidArgs;
-    intptr_t threadId = (intptr_t)pthread_self();
+    int threadId = cds_tprim_thread_id();
     int lastRoundIndex = 0;
-    intptr_t zero = 0;
+    int zero = 0;
     for(;;)
     {
         zero = 0;
@@ -826,10 +844,10 @@ static void *testDancerFollower(void *voidArgs)
         cds_tprim_fastsem_post(&args->queueF);
         cds_tprim_fastsem_wait(&args->queueL);
         /* critical section */
-        lastRoundIndex = __atomic_load_n(&args->roundIndex, __ATOMIC_SEQ_CST);
+        lastRoundIndex = CDS_TPRIM_ATOMIC_LOAD(&args->roundIndex);
         if (args->roundIndex < CDS_TEST_DANCER_NUM_ROUNDS)
         {
-            zero = __atomic_fetch_add(&args->rounds[args->roundIndex].followerId, threadId, __ATOMIC_SEQ_CST);
+            zero = CDS_TPRIM_ATOMIC_FETCH_ADD(&args->rounds[args->roundIndex].followerId, threadId);
         }
         cds_tprim_fastsem_post(&args->rendezvous);
         /* end critical section */
@@ -845,7 +863,7 @@ static void *testDancerFollower(void *voidArgs)
             break;
         }
     }
-    return NULL;
+    return (cds_tprim_threadproc_return_t)NULL;
 }
 
 int main(int argc, char *argv[])
@@ -856,8 +874,8 @@ int main(int argc, char *argv[])
      * should be entered by exactly one of each type at a time.
      */
     {
-        cds_test_dancer_args_t dancerArgs = {};
-        pthread_t *leaderThreads = NULL, *followerThreads = NULL;
+        cds_test_dancer_args_t dancerArgs = {0};
+        cds_tprim_thread_t *leaderThreads = NULL, *followerThreads = NULL;
         const int kNumLeaders = 8, kNumFollowers = 8;
         int iLeader=0, iFollower=0, iRound=0;
 
@@ -868,26 +886,24 @@ int main(int argc, char *argv[])
         cds_tprim_fastsem_init(&dancerArgs.mutexF, 1);
         cds_tprim_fastsem_init(&dancerArgs.rendezvous, 0);
 
-        leaderThreads = (pthread_t*)malloc(kNumLeaders*sizeof(pthread_t));
+        leaderThreads = (cds_tprim_thread_t*)malloc(kNumLeaders*sizeof(cds_tprim_thread_t));
         for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
         {
-            pthread_create(&leaderThreads[iLeader], NULL,
-                testDancerLeader, &dancerArgs);
+            cds_tprim_thread_create(&leaderThreads[iLeader], testDancerLeader, &dancerArgs);
         }
-        followerThreads = (pthread_t*)malloc(kNumFollowers*sizeof(pthread_t));
+        followerThreads = (cds_tprim_thread_t*)malloc(kNumFollowers*sizeof(cds_tprim_thread_t));
         for(iFollower=0; iFollower<kNumFollowers; ++iFollower)
         {
-            pthread_create(&followerThreads[iFollower], NULL,
-                testDancerFollower, &dancerArgs);
+            cds_tprim_thread_create(&followerThreads[iFollower], testDancerFollower, &dancerArgs);
         }
 
         for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
         {
-            pthread_join(leaderThreads[iLeader], NULL);
+            cds_tprim_thread_join(leaderThreads[iLeader]);
         }
         for(iFollower=0; iFollower<kNumFollowers; ++iFollower)
         {
-            pthread_join(followerThreads[iFollower], NULL);
+            cds_tprim_thread_join(followerThreads[iFollower]);
         }
 
         /* verify that each round's leader/follower IDs are non-zero. */
