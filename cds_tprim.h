@@ -279,8 +279,7 @@ static CDS_TPRIM_INLINE int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
     int count = __atomic_load_n(&sem->mCount, __ATOMIC_ACQUIRE);
     while(count > 0)
     {
-        int newCount = count-1;
-        if (__atomic_compare_exchange_n(&sem->mCount, &count, newCount, 1, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
+        if (__atomic_compare_exchange_n(&sem->mCount, &count, count-1, 1, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
         {
             return 1;
         }
@@ -437,21 +436,15 @@ void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, int cmp)
 int cds_tprim_monsem_init(cds_tprim_monsem_t *ms, int count)
 {
     assert(count >= 0);
-#if defined(_MSC_VER)
-#else
     cds_tprim_fastsem_init(&ms->mSem, 0);
     cds_tprim_eventcount_init(&ms->mEc);
     ms->mState = count << CDS_TPRIM_MONSEM_COUNT_SHIFT;
     return 0;
-#endif
 }
 void cds_tprim_monsem_destroy(cds_tprim_monsem_t *ms)
 {
-#if defined(_MSC_VER)
-#else
     cds_tprim_fastsem_destroy(&ms->mSem);
     cds_tprim_eventcount_destroy(&ms->mEc);
-#endif
 }
 
 void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
@@ -485,11 +478,11 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
         int newState = state & CDS_TPRIM_MONSEM_COUNT_MASK;
         if (state == newState)
         {
-            return;
+            return; /* nothing to do */
         }
         if (__atomic_compare_exchange_n(&ms->mState, &state, newState, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
         {
-            return;
+            return; /* updated successfully */
         }
         /* retry; state was reloaded */
     }
@@ -498,10 +491,13 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
 
 static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *ms)
 {
-#if defined(_MSC_VER)
-#else
     /* int prevState = ((count-1)<<COUNT_SHIFT) | (state & WAIT_FOR_MASK); */
+#if defined(_MSC_VER)
+    int prevState = InterlockedExchangeAdd(&ms->mState, (-1)<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
+#else
     int prevState = __atomic_fetch_add(&ms->mState, (-1)<<CDS_TPRIM_MONSEM_COUNT_SHIFT, __ATOMIC_ACQ_REL);
+#endif
+
     int prevCount = prevState >> CDS_TPRIM_MONSEM_COUNT_SHIFT; /* arithmetic shift is intentional */
     if (prevCount <= 0)
     {
@@ -515,7 +511,6 @@ static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *m
         }
         cds_tprim_fastsem_wait(&ms->mSem);
     }
-#endif
 }
 
 static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
@@ -582,17 +577,18 @@ void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms)
 
 void cds_tprim_monsem_post(cds_tprim_monsem_t *ms)
 {
-#if defined(_MSC_VER)
-#else
     const int inc = 1;
+#if defined(_MSC_VER)
+    int prev = InterlockedExchangeAdd(&ms->mState, inc<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
+#else
     int prev = __atomic_fetch_add(&ms->mState, inc<<CDS_TPRIM_MONSEM_COUNT_SHIFT, __ATOMIC_ACQ_REL);
+#endif
     int count = (prev >> CDS_TPRIM_MONSEM_COUNT_SHIFT);
     assert(count < 0  || ( (unsigned int)count < (CDS_TPRIM_MONSEM_COUNT_MAX-2) ));
     if (count < 0)
     {
         cds_tprim_fastsem_post(&ms->mSem);
     }
-#endif
 }
 
 void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, int n)
@@ -609,6 +605,7 @@ void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, int n)
 /* cds_tprim_barrier_t */
 int cds_tprim_barrier_init(cds_tprim_barrier_t *barrier, int threadCount)
 {
+    assert(threadCount > 0);
     barrier->insideCount = 0;
     barrier->threadCount = threadCount;
     cds_tprim_fastsem_init(&barrier->mutex, 1);
