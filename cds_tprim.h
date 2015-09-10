@@ -19,16 +19,35 @@ extern "C"
 {
 #endif
 
+
+#if defined(_MSC_VER)
+#   define CDS_TPRIM_PLATFORM_WINDOWS
+#elif defined(__APPLE__) && defined(__MACH__)
+#   define CDS_TPRIM_PLATFORM_OSX
+#elif defined(_POSIX_VERSION) && (_POSIX_VERSION >= 200112L)
+#   define CDS_TPRIM_PLATFORM_POSIX
+#else
+#   error Unsupported compiler/platform
+#endif
+
 #ifdef CDS_TPRIM_STATIC
 #   define CDS_TPRIM_DEF static
 #else
 #   define CDS_TPRIM_DEF extern
 #endif
 
-#ifdef _MSC_VER
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
 #   include <windows.h>
 #   define CDS_TPRIM_INLINE __forceinline
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX)
+#   include <pthread.h>
+#   include <dispatch/dispatch.h>
+#   ifdef __cplusplus
+#       define CDS_TPRIM_INLINE inline
+#   else
+#       define CDS_TPRIM_INLINE
+#   endif
+#elif defined(CDS_TPRIM_PLATFORM_POSIX)
 #   include <pthread.h>
 #   include <semaphore.h>
 #   ifdef __cplusplus
@@ -42,19 +61,19 @@ extern "C"
      * cds_tprim_fastsem_t -- a semaphore guaranteed to stay in user code
      * unless necessary (i.e. a thread must be awakened or put to sleep).
      */
-#if defined(_MSC_VER)
     typedef struct
     {
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
         HANDLE mHandle;
         LONG mCount;
-    } cds_tprim_fastsem_t;
-#else
-    typedef struct
-    {
+#elif defined(CDS_TPRIM_PLATFORM_OSX)
+		dispatch_semaphore_t mSem;
+		int mCount;
+#elif defined(CDS_TPRIM_PLATFORM_POSIX)
         sem_t mSem;
         int mCount;
-    } cds_tprim_fastsem_t;
 #endif
+    } cds_tprim_fastsem_t;
 
     /** @brief Initialize a semaphore to the specified value. */
     CDS_TPRIM_DEF int cds_tprim_fastsem_init(cds_tprim_fastsem_t *sem, int n);
@@ -96,21 +115,18 @@ extern "C"
      * meantime. This ensures that the waiter only needs to wait if
      * there's legitimately no event in the queue.
      */
-#if defined(_MSC_VER)
     typedef struct
     {
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
         CONDITION_VARIABLE mCond;
         CRITICAL_SECTION mCrit;
         LONG mCount;
-    } cds_tprim_eventcount_t;
-#else
-    typedef struct
-    {
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
         pthread_cond_t mCond;
         pthread_mutex_t mMtx;
         int mCount;
-    } cds_tprim_eventcount_t;
 #endif
+    } cds_tprim_eventcount_t;
 
     /** @brief Initialize an eventcount object. */
     CDS_TPRIM_DEF int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec);
@@ -246,31 +262,37 @@ extern "C"
 /* cds_tprim_fastsem_t */
 int cds_tprim_fastsem_init(cds_tprim_fastsem_t *sem, int n)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     sem->mCount = n;
     sem->mHandle = CreateSemaphore(NULL, 0, LONG_MAX, NULL);
     if (sem->mHandle == NULL)
         return GetLastError();
     return 0;
-#else
-    sem->mCount = n;
+#elif defined(CDS_TPRIM_PLATFORM_OSX)
+	sem->mSem = dispatch_semaphore_create(0);
+	sem->mCount = n;
+	return (sem->mSem != NULL) ? 0 : -1;
+#elif defined(CDS_TPRIM_PLATFORM_POSIX)
     int err = sem_init(&sem->mSem, 0, 0);
+    sem->mCount = n;
     return err;
 #endif
 }
 
 void cds_tprim_fastsem_destroy(cds_tprim_fastsem_t *sem)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     CloseHandle(sem->mHandle);
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX)
+	dispatch_release(sem->mSem);
+#elif defined(CDS_TPRIM_PLATFORM_POSIX)
     sem_destroy(&sem->mSem);
 #endif
 }
 
 static CDS_TPRIM_INLINE int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     LONG count = sem->mCount;
     while(count > 0)
     {
@@ -283,7 +305,7 @@ static CDS_TPRIM_INLINE int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
         /* otherwise, count was reloaded. backoff here is optional. */
     }
     return 0;
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     int count = __atomic_load_n(&sem->mCount, __ATOMIC_ACQUIRE);
     while(count > 0)
     {
@@ -299,12 +321,17 @@ static CDS_TPRIM_INLINE int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
 
 static CDS_TPRIM_INLINE void cds_tprim_fastsem_wait_no_spin(cds_tprim_fastsem_t *sem)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     if (InterlockedExchangeAdd(&sem->mCount, -1) < 1)
     {
         WaitForSingleObject(sem->mHandle, INFINITE);
     }
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX)
+    if (__atomic_fetch_add(&sem->mCount, -1, __ATOMIC_ACQ_REL) < 1)
+    {
+        dispatch_semaphore_wait(sem->mSem, DISPATCH_TIME_FOREVER);
+    }
+#elif defined(CDS_TPRIM_PLATFORM_POSIX)
     if (__atomic_fetch_add(&sem->mCount, -1, __ATOMIC_ACQ_REL) < 1)
     {
         sem_wait(&sem->mSem);
@@ -327,12 +354,17 @@ void cds_tprim_fastsem_wait(cds_tprim_fastsem_t *sem)
 
 void cds_tprim_fastsem_post(cds_tprim_fastsem_t *sem)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     if (InterlockedExchangeAdd(&sem->mCount, 1) < 0)
     {
         ReleaseSemaphore(sem->mHandle, 1, 0);
     }
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX)
+	if (__atomic_fetch_add(&sem->mCount, 1, __ATOMIC_ACQ_REL) < 0)
+    {
+        dispatch_semaphore_signal(sem->mSem);
+    }
+#elif defined(CDS_TPRIM_PLATFORM_POSIX)
     if (__atomic_fetch_add(&sem->mCount, 1, __ATOMIC_ACQ_REL) < 0)
     {
         sem_post(&sem->mSem);
@@ -342,7 +374,7 @@ void cds_tprim_fastsem_post(cds_tprim_fastsem_t *sem)
 
 void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, int n)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     LONG oldCount = InterlockedExchangeAdd(&sem->mCount, n);
     if (oldCount < 0)
     {
@@ -350,7 +382,20 @@ void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, int n)
         int numToWake = CDS_TPRIM_MIN(numWaiters, n);
         ReleaseSemaphore(sem->mHandle, numToWake, 0);
     }
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX)
+    int oldCount = __atomic_fetch_add(&sem->mCount, n, __ATOMIC_ACQ_REL);
+    if (oldCount < 0)
+    {
+        int numWaiters = -oldCount;
+        int numToWake = CDS_TPRIM_MIN(numWaiters, n);
+        /* wakeN would be better than a loop here, but hey */
+        int iWake;
+        for(iWake=0; iWake<numToWake; iWake += 1)
+        {
+            dispatch_semaphore_signal(sem->mSem);
+        }
+    }
+#elif defined(CDS_TPRIM_PLATFORM_POSIX)
     int oldCount = __atomic_fetch_add(&sem->mCount, n, __ATOMIC_ACQ_REL);
     if (oldCount < 0)
     {
@@ -368,9 +413,9 @@ void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, int n)
 
 int cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     return (int)&sem->mCount;
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     return __atomic_load_n(&sem->mCount, __ATOMIC_SEQ_CST);
 #endif
 }
@@ -379,12 +424,12 @@ int cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem)
 /* cds_tprim_eventcount_t */
 int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     InitializeConditionVariable(&ec->mCond);
     InitializeCriticalSection(&ec->mCrit);
     ec->mCount = 0;
     return 0;
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     pthread_cond_init(&ec->mCond, 0);
     pthread_mutex_init(&ec->mMtx, 0);
     __atomic_store_n(&ec->mCount, 0, __ATOMIC_RELAXED);
@@ -393,25 +438,25 @@ int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 }
 void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     /* Windows CONDITION_VARIABLE object do not need to be destroyed. */
     DeleteCriticalSection(&ec->mCrit);
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     pthread_cond_destroy(&ec->mCond);
     pthread_mutex_destroy(&ec->mMtx);
 #endif
 }
 int cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     return InterlockedOrAcquire(&ec->mCount, 1);
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     return __atomic_fetch_or(&ec->mCount, 1, __ATOMIC_ACQUIRE);
 #endif
 }
 void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     LONG key = ec->mCount;
     if (key & 1)
     {
@@ -429,7 +474,7 @@ void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
         LeaveCriticalSection(&ec->mCrit);
         WakeAllConditionVariable(&ec->mCond);
     }
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     int key = __atomic_fetch_add(&ec->mCount, 0, __ATOMIC_SEQ_CST);
     if (key & 1)
     {
@@ -445,14 +490,14 @@ void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
 }
 void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, int cmp)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     EnterCriticalSection(&ec->mCrit);
     while((ec->mCount & ~1) == (cmp & ~1))
     {
         SleepConditionVariableCS(&ec->mCond, &ec->mCrit, INFINITE);
     }
     LeaveCriticalSection(&ec->mCrit);
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     pthread_mutex_lock(&ec->mMtx);
     if ((__atomic_load_n(&ec->mCount, __ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
     {
@@ -489,7 +534,7 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
 {
     int state;
     assert( waitForCount > 0 && waitForCount < CDS_TPRIM_MONSEM_WAIT_FOR_MAX );
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     state = ms->mState;
     for(;;)
     {
@@ -524,7 +569,7 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
         }
         /* retry; state was reloaded */
     }
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
     for(;;)
     {
@@ -563,9 +608,9 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, int waitForCount)
 static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *ms)
 {
     /* int prevState = ((count-1)<<COUNT_SHIFT) | (state & WAIT_FOR_MASK); */
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     int prevState = InterlockedExchangeAdd(&ms->mState, (-1)<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     int prevState = __atomic_fetch_add(&ms->mState, (-1)<<CDS_TPRIM_MONSEM_COUNT_SHIFT, __ATOMIC_ACQ_REL);
 #endif
 
@@ -586,7 +631,7 @@ static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *m
 
 static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     /* See if we can decrement the count before preparing the wait. */
     int state = ms->mState;
     for(;;)
@@ -606,7 +651,7 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
         }
         /* state was reloaded; try again, with optional backoff. */
     }
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     /* See if we can decrement the count before preparing the wait. */
     int state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
     for(;;)
@@ -630,7 +675,7 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
 
 static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms)
 {
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     int state = ms->mState;
     for(;;)
     {
@@ -649,7 +694,7 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms
         }
         /* state was reloaded; try again, with optional backoff. */
     }
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     int state = __atomic_load_n(&ms->mState, __ATOMIC_ACQUIRE);
     for(;;)
     {
@@ -672,7 +717,7 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms
 
 void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms)
 {
-    int spinCount = 1; /* rrGetSpintCount() */
+    int spinCount = 1;
     while(spinCount -= 1)
     {
         if (cds_tprim_monsem_try_wait(ms))
@@ -686,9 +731,9 @@ void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms)
 void cds_tprim_monsem_post(cds_tprim_monsem_t *ms)
 {
     const int inc = 1;
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     int prev = InterlockedExchangeAdd(&ms->mState, inc<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     int prev = __atomic_fetch_add(&ms->mState, inc<<CDS_TPRIM_MONSEM_COUNT_SHIFT, __ATOMIC_ACQ_REL);
 #endif
     int count = (prev >> CDS_TPRIM_MONSEM_COUNT_SHIFT);
@@ -763,7 +808,7 @@ void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier)
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(_MSC_VER)
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
 typedef HANDLE cds_tprim_thread_t;
 typedef DWORD cds_tprim_threadproc_return_t;
 static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, LPTHREAD_START_ROUTINE startProc, void *args) { *pThread = CreateThread(NULL,0,startProc,args,0,NULL); }
@@ -771,7 +816,7 @@ static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { 
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)GetCurrentThreadId(); }
 #   define CDS_TPRIM_ATOMIC_LOAD(pDest) (*(pDest))
 #   define CDS_TPRIM_ATOMIC_FETCH_ADD(pDest,n) InterlockedExchangeAdd( (pDest), (n) )
-#else
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
 #   include <unistd.h>
 typedef pthread_t cds_tprim_thread_t;
 typedef void* cds_tprim_threadproc_return_t;
