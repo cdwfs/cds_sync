@@ -4,7 +4,7 @@
  * before including this file in *one* C/C++ file to provide the function implementations.
  *
  * For a unit test on gcc/Clang:
- *   cc -lpthread -std=c89 -g -x c -DCDS_TPRIM_TEST -o [exeFile] cds_tprim.h
+ *   cc -pthread -std=c89 -g -x c -DCDS_TPRIM_TEST -o [exeFile] cds_tprim.h
  * Clang users may also pass -fsanitize=thread to enable Clang's ThreadSanitizer feature.
  *
  * For a unit test on Visual C++:
@@ -235,7 +235,6 @@ extern "C"
 #   endif
 #endif
 
-#define CDS_TPRIM_IMPLEMENTATION // TEMP
 #ifdef CDS_TPRIM_IMPLEMENTATION
 
 #include <assert.h>
@@ -820,8 +819,8 @@ static cds_tprim_threadproc_return_t testDancerLeader(void *voidArgs)
         cds_tprim_fastsem_post(&args->mutexL);
         if (0 != zero)
         {
-            printf("ERROR: double-write to rounds[%d].leaderId (expected 0, found %p)\n",
-                lastRoundIndex, (void*)zero);
+            printf("ERROR: double-write to rounds[%d].leaderId (expected 0, found %d)\n",
+                lastRoundIndex, zero);
             ++g_errorCount;
         }
         if (lastRoundIndex+1 >= CDS_TEST_DANCER_NUM_ROUNDS)
@@ -854,8 +853,8 @@ static cds_tprim_threadproc_return_t testDancerFollower(void *voidArgs)
         cds_tprim_fastsem_post(&args->mutexF);
         if (0 != zero)
         {
-            printf("ERROR: double-write to rounds[%d].followererId (expected 0, found %p)\n",
-                lastRoundIndex, (void*)zero);
+            printf("ERROR: double-write to rounds[%d].followererId (expected 0, found %d)\n",
+                lastRoundIndex, zero);
             ++g_errorCount;
         }
         if (lastRoundIndex+1 >= CDS_TEST_DANCER_NUM_ROUNDS)
@@ -912,9 +911,9 @@ int main(int argc, char *argv[])
             if (0 == dancerArgs.rounds[iRound].leaderId ||
                 0 == dancerArgs.rounds[iRound].followerId)
             {
-                printf("ERROR: round[%d] = [%p,%p]\n", iRound,
-                    (void*)dancerArgs.rounds[iRound].leaderId,
-                    (void*)dancerArgs.rounds[iRound].followerId);
+                printf("ERROR: round[%d] = [%d,%d]\n", iRound,
+                    dancerArgs.rounds[iRound].leaderId,
+                    dancerArgs.rounds[iRound].followerId);
                 ++g_errorCount;
             }
         }
