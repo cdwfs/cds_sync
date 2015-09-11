@@ -830,6 +830,7 @@ void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier)
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
 typedef HANDLE cds_tprim_thread_t;
 typedef DWORD cds_tprim_threadproc_return_t;
+#   define CDS_TPRIM_THREADPROC WINAPI
 static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, LPTHREAD_START_ROUTINE startProc, void *args) { *pThread = CreateThread(NULL,0,startProc,args,0,NULL); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { WaitForSingleObject(thread, INFINITE); CloseHandle(thread); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)GetCurrentThreadId(); }
@@ -839,6 +840,7 @@ static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)GetCurrentTh
 #   include <unistd.h>
 typedef pthread_t cds_tprim_thread_t;
 typedef void* cds_tprim_threadproc_return_t;
+#define CDS_TPRIM_THREADPROC
 static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, void *(*startProc)(void*), void *args) { pthread_create(pThread,NULL,startProc,args); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { pthread_join(thread, NULL); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)pthread_self(); }
@@ -860,7 +862,7 @@ typedef struct
     cds_tprim_fastsem_t queueL, queueF, mutexL, mutexF, rendezvous;
     int roundIndex;
 } cds_test_dancer_args_t;
-static cds_tprim_threadproc_return_t testDancerLeader(void *voidArgs)
+static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testDancerLeader(void *voidArgs)
 {
     cds_test_dancer_args_t *args = (cds_test_dancer_args_t*)voidArgs;
     int threadId = cds_tprim_thread_id();
@@ -894,7 +896,7 @@ static cds_tprim_threadproc_return_t testDancerLeader(void *voidArgs)
     }
     return (cds_tprim_threadproc_return_t)NULL;
 }
-static cds_tprim_threadproc_return_t testDancerFollower(void *voidArgs)
+static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testDancerFollower(void *voidArgs)
 {
     cds_test_dancer_args_t *args = (cds_test_dancer_args_t*)voidArgs;
     int threadId = cds_tprim_thread_id();
