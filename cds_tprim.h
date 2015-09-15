@@ -5,7 +5,7 @@
  * implementations.
  *
  * For a unit test on gcc/Clang:
- *   cc -pthread -std=c89 -g -x c -DCDS_TPRIM_TEST -o [exeFile] cds_tprim.h
+ *   cc -pthread -std=c89 -g -x c -DCDS_TPRIM_TEST -o test_tprim.exe cds_tprim.h
  * Clang users may also pass -fsanitize=thread to enable Clang's
  * ThreadSanitizer feature.
  *
