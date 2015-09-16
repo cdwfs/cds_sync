@@ -1,5 +1,10 @@
 GPATH
 GRTAGS
 GTAGS
+
+# Visual Studio droppings
 *.exe
 *.obj
+*.ilk
+*.pdb
+*.suo
