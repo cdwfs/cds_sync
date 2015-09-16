@@ -45,24 +45,29 @@ extern "C"
 #endif
 
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
-#   include <windows.h>
 #   define CDS_TPRIM_INLINE __forceinline
 #elif defined(CDS_TPRIM_PLATFORM_OSX)
-#   include <pthread.h>
-#   include <dispatch/dispatch.h>
 #   ifdef __cplusplus
 #       define CDS_TPRIM_INLINE inline
 #   else
 #       define CDS_TPRIM_INLINE
 #   endif
 #elif defined(CDS_TPRIM_PLATFORM_POSIX)
-#   include <pthread.h>
-#   include <semaphore.h>
 #   ifdef __cplusplus
 #       define CDS_TPRIM_INLINE inline
 #   else
 #       define CDS_TPRIM_INLINE
 #   endif
+#endif
+
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#   include <windows.h>
+#elif defined(CDS_TPRIM_PLATFORM_OSX)
+#   include <pthread.h>
+#   include <dispatch/dispatch.h>
+#elif defined(CDS_TPRIM_PLATFORM_POSIX)
+#   include <pthread.h>
+#   include <semaphore.h>
 #endif
 
     /**
