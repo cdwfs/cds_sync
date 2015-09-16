@@ -12,6 +12,8 @@
  * For a unit test on Visual C++:
  *   "%VS120COMNTOOLS%\..\..\VC\vcvarsall.bat"
  *   cl -nologo -TC -DCDS_TPRIM_TEST cds_tprim.h
+ * Debug-mode:
+ *   cl -Od -Z7 -FC -MTd -nologo -TC -DCDS_TPRIM_TEST cds_tprim.h
  */
 #if !defined(CDS_TPRIM_H)
 #define CDS_TPRIM_H
