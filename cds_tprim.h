@@ -800,6 +800,7 @@ void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier)
 #include <stdlib.h>
 #include <string.h>
 
+/* Minimal thread management wrappers */
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
 typedef HANDLE cds_tprim_thread_t;
 typedef DWORD cds_tprim_threadproc_return_t;
@@ -807,6 +808,7 @@ typedef DWORD cds_tprim_threadproc_return_t;
 static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, LPTHREAD_START_ROUTINE startProc, void *args) { *pThread = CreateThread(NULL,0,startProc,args,0,NULL); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { WaitForSingleObject(thread, INFINITE); CloseHandle(thread); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)GetCurrentThreadId(); }
+static CDS_TPRIM_INLINE void cds_tprim_sleep_ms(int ms) { Sleep(ms); }
 #elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
 typedef pthread_t cds_tprim_thread_t;
 typedef void* cds_tprim_threadproc_return_t;
@@ -814,9 +816,9 @@ typedef void* cds_tprim_threadproc_return_t;
 static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, void *(*startProc)(void*), void *args) { pthread_create(pThread,NULL,startProc,args); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { pthread_join(thread, NULL); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)pthread_self(); }
+static CDS_TPRIM_INLINE void cds_tprim_sleep_ms(int ms) { uleep(1000*ms); }
 #endif
 
-#define CDS_TPRIM_TEST_NUM_THREADS 16
 static cds_tprim_s32 g_errorCount = 0;
 
 #define CDS_TEST_DANCER_NUM_ROUNDS 1000
@@ -865,6 +867,7 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testDancerLeader(void 
     }
     return (cds_tprim_threadproc_return_t)NULL;
 }
+
 static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testDancerFollower(void *voidArgs)
 {
     cds_test_dancer_args_t *args = (cds_test_dancer_args_t*)voidArgs;
@@ -901,68 +904,188 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testDancerFollower(voi
     return (cds_tprim_threadproc_return_t)NULL;
 }
 
-int main(int argc, char *argv[])
+static void testDancers(void)
 {
     /*
      * Use semaphores to implement a pair of queues: one for leaders,
      * one for followers. The queue protects a critical section, which
      * should be entered by exactly one of each type at a time.
      */
+    cds_test_dancer_args_t dancerArgs;
+    cds_tprim_thread_t *leaderThreads = NULL, *followerThreads = NULL;
+    const int kNumLeaders = 8, kNumFollowers = 8;
+    int iLeader=0, iFollower=0, iRound=0;
+    
+    dancerArgs.roundIndex = 0;
+    memset(dancerArgs.rounds, 0, sizeof(dancerArgs.rounds));
+    cds_tprim_fastsem_init(&dancerArgs.queueL, 0);
+    cds_tprim_fastsem_init(&dancerArgs.queueF, 0);
+    cds_tprim_fastsem_init(&dancerArgs.mutexL, 1);
+    cds_tprim_fastsem_init(&dancerArgs.mutexF, 1);
+    cds_tprim_fastsem_init(&dancerArgs.rendezvous, 0);
+    
+    leaderThreads = (cds_tprim_thread_t*)malloc(kNumLeaders*sizeof(cds_tprim_thread_t));
+    for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
     {
-        cds_test_dancer_args_t dancerArgs;
-        cds_tprim_thread_t *leaderThreads = NULL, *followerThreads = NULL;
-        const int kNumLeaders = 8, kNumFollowers = 8;
-        int iLeader=0, iFollower=0, iRound=0;
-
-        dancerArgs.roundIndex = 0;
-        memset(dancerArgs.rounds, 0, sizeof(dancerArgs.rounds));
-        cds_tprim_fastsem_init(&dancerArgs.queueL, 0);
-        cds_tprim_fastsem_init(&dancerArgs.queueF, 0);
-        cds_tprim_fastsem_init(&dancerArgs.mutexL, 1);
-        cds_tprim_fastsem_init(&dancerArgs.mutexF, 1);
-        cds_tprim_fastsem_init(&dancerArgs.rendezvous, 0);
-
-        leaderThreads = (cds_tprim_thread_t*)malloc(kNumLeaders*sizeof(cds_tprim_thread_t));
-        for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
-        {
-            cds_tprim_thread_create(&leaderThreads[iLeader], testDancerLeader, &dancerArgs);
-        }
-        followerThreads = (cds_tprim_thread_t*)malloc(kNumFollowers*sizeof(cds_tprim_thread_t));
-        for(iFollower=0; iFollower<kNumFollowers; ++iFollower)
-        {
-            cds_tprim_thread_create(&followerThreads[iFollower], testDancerFollower, &dancerArgs);
-        }
-
-        for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
-        {
-            cds_tprim_thread_join(leaderThreads[iLeader]);
-        }
-        for(iFollower=0; iFollower<kNumFollowers; ++iFollower)
-        {
-            cds_tprim_thread_join(followerThreads[iFollower]);
-        }
-
-        /* verify that each round's leader/follower IDs are non-zero. */
-        for(iRound=0; iRound<CDS_TEST_DANCER_NUM_ROUNDS; ++iRound)
-        {
-            if (0 == dancerArgs.rounds[iRound].leaderId ||
-                0 == dancerArgs.rounds[iRound].followerId)
-            {
-                printf("ERROR: round[%d] = [%d,%d]\n", iRound,
-                    dancerArgs.rounds[iRound].leaderId,
-                    dancerArgs.rounds[iRound].followerId);
-                ++g_errorCount;
-            }
-        }
-
-        cds_tprim_fastsem_destroy(&dancerArgs.queueL);
-        cds_tprim_fastsem_destroy(&dancerArgs.queueF);
-        cds_tprim_fastsem_destroy(&dancerArgs.mutexL);
-        cds_tprim_fastsem_destroy(&dancerArgs.mutexF);
-        cds_tprim_fastsem_destroy(&dancerArgs.rendezvous);
-        free(leaderThreads);
-        free(followerThreads);
+        cds_tprim_thread_create(&leaderThreads[iLeader], testDancerLeader, &dancerArgs);
     }
-    printf("error count after dancers: %d\n", g_errorCount);
+    followerThreads = (cds_tprim_thread_t*)malloc(kNumFollowers*sizeof(cds_tprim_thread_t));
+    for(iFollower=0; iFollower<kNumFollowers; ++iFollower)
+    {
+        cds_tprim_thread_create(&followerThreads[iFollower], testDancerFollower, &dancerArgs);
+    }
+
+    for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
+    {
+        cds_tprim_thread_join(leaderThreads[iLeader]);
+    }
+    for(iFollower=0; iFollower<kNumFollowers; ++iFollower)
+    {
+        cds_tprim_thread_join(followerThreads[iFollower]);
+    }
+
+    /* verify that each round's leader/follower IDs are non-zero. */
+    for(iRound=0; iRound<CDS_TEST_DANCER_NUM_ROUNDS; ++iRound)
+    {
+        if (0 == dancerArgs.rounds[iRound].leaderId ||
+            0 == dancerArgs.rounds[iRound].followerId)
+        {
+            printf("ERROR: round[%d] = [%d,%d]\n", iRound,
+                dancerArgs.rounds[iRound].leaderId,
+                dancerArgs.rounds[iRound].followerId);
+            ++g_errorCount;
+        }
+    }
+
+    cds_tprim_fastsem_destroy(&dancerArgs.queueL);
+    cds_tprim_fastsem_destroy(&dancerArgs.queueF);
+    cds_tprim_fastsem_destroy(&dancerArgs.mutexL);
+    cds_tprim_fastsem_destroy(&dancerArgs.mutexF);
+    cds_tprim_fastsem_destroy(&dancerArgs.rendezvous);
+    free(leaderThreads);
+    free(followerThreads);
+}
+
+#define CDS_TEST_QUEUE_LENGTH 100
+typedef struct cds_test_queue_args_t
+{
+    cds_tprim_fastsem_t mtx; /* protects queue; too lazy to write a lockless */
+    cds_tprim_eventcount_t ec;
+    cds_tprim_s32 input[CDS_TEST_QUEUE_LENGTH];
+    cds_tprim_s32 output[CDS_TEST_QUEUE_LENGTH];
+    cds_tprim_s32 readIndex, writeIndex;
+} cds_test_queue_args_t;
+static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testQueuePopper(void *voidArgs)
+{
+    cds_test_queue_args_t *args = (cds_test_queue_args_t*)voidArgs;
+    cds_tprim_s32 n = 0;
+    while(n >= 0 && args->readIndex < CDS_TEST_QUEUE_LENGTH)
+    {
+        cds_tprim_s32 count = 0;
+        int gotOne = 0;
+        cds_tprim_s32 ri, wi;
+        cds_tprim_fastsem_wait(&args->mtx);
+        if (args->readIndex < args->writeIndex)
+        {
+            n = args->input[args->readIndex++];
+            gotOne = 1;
+        }
+        cds_tprim_fastsem_post(&args->mtx);
+        if (gotOne)
+        {
+            if (args->output[abs(n)] != 0)
+                printf("0x%08X: output[%3d] = %3d (expected 0)\n", cds_tprim_thread_id(), abs(n), args->output[abs(n)]);
+            args->output[abs(n)] += n;
+            continue;
+        }
+        /* queue was empty; get() the EC and try again */
+        count = cds_tprim_eventcount_get(&args->ec);
+        cds_tprim_fastsem_wait(&args->mtx);
+        if (args->readIndex < args->writeIndex)
+        {
+            n = args->input[args->readIndex++];
+            gotOne = 1;
+        }
+        cds_tprim_fastsem_post(&args->mtx);
+        if (gotOne)
+        {
+            /* TODO: cancel EC get()? */
+            if (args->output[abs(n)] != 0)
+                printf("0x%08X: output[%3d] = %3d (expected 0)\n", cds_tprim_thread_id(), abs(n), args->output[abs(n)]);
+            args->output[abs(n)] += n;
+            continue;
+        }
+        /* queue still empty; wait until it has something available. */
+        cds_tprim_eventcount_wait(&args->ec, count);
+    }
+    return 0;
+}
+static void testEventcount(void)
+{
+    cds_test_queue_args_t args;
+    cds_tprim_s32 iEntry, iPopper;
+    cds_tprim_thread_t *popperThreads = NULL;
+    const int kNumPoppers = 8;
+
+    cds_tprim_fastsem_init(&args.mtx, 1);
+    cds_tprim_eventcount_init(&args.ec);
+    for(iEntry=0; iEntry<CDS_TEST_QUEUE_LENGTH; ++iEntry)
+    {
+        args.input[iEntry]  = (iEntry+kNumPoppers < CDS_TEST_QUEUE_LENGTH) ? iEntry : -iEntry;
+        args.output[iEntry] = 0;
+    }
+    args.readIndex = 0;
+    args.writeIndex = 0;
+
+    popperThreads = (cds_tprim_thread_t*)malloc(kNumPoppers*sizeof(cds_tprim_thread_t));
+    for(iPopper=0; iPopper<kNumPoppers; ++iPopper)
+    {
+        cds_tprim_thread_create(&popperThreads[iPopper], testQueuePopper, &args);
+    }
+    
+    iEntry=0;
+    for(;;)
+    {
+        cds_tprim_s32 numPushes = rand() % 4 + 1;
+        int sleepMs = rand() % 2;
+        if (args.writeIndex + numPushes > CDS_TEST_QUEUE_LENGTH)
+            numPushes = CDS_TEST_QUEUE_LENGTH - args.writeIndex;
+        cds_tprim_atomic_fetch_add_s32(&args.writeIndex, numPushes, CDS_TPRIM_ATOMIC_SEQ_CST);
+        cds_tprim_eventcount_signal(&args.ec);
+        if (args.writeIndex == CDS_TEST_QUEUE_LENGTH)
+        {
+            break;
+        }
+        cds_tprim_sleep_ms(sleepMs);
+    }
+    
+    for(iPopper=0; iPopper<kNumPoppers; ++iPopper)
+    {
+        cds_tprim_thread_join(popperThreads[iPopper]);
+    }
+    for(iEntry=0; iEntry<CDS_TEST_QUEUE_LENGTH; ++iEntry)
+    {
+        if (abs(args.output[iEntry]) != iEntry)
+        {
+            printf("ERROR: double-write to output[%d]; expected %d, found %d\n", iEntry, iEntry, args.output[iEntry]);
+            ++g_errorCount;
+        }
+    }
+}
+
+int main(int argc, char *argv[])
+{
+    int seed = time(NULL);
+    printf("random seed: 0x%08X\n");
+    srand(seed);
+
+    for(;;)
+    {
+        testDancers();
+        printf("error count after testDancers():    %d\n", g_errorCount);
+        
+        testEventcount();
+        printf("error count after testEventcount(): %d\n", g_errorCount);
+    }
 }
 #endif /*------------------- send self-test section ------------*/
