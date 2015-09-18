@@ -87,7 +87,6 @@ extern "C"
     typedef uint32_t cds_tprim_u32;
 #endif
 
-
     /**
      * cds_tprim_fastsem_t -- a semaphore guaranteed to stay in user code
      * unless necessary (i.e. a thread must be awakened or put to sleep).
@@ -105,10 +104,12 @@ extern "C"
     } cds_tprim_fastsem_t;
 
     /** @brief Initialize a semaphore to the specified value. */
-    CDS_TPRIM_DEF int cds_tprim_fastsem_init(cds_tprim_fastsem_t *sem, cds_tprim_s32 n);
+    CDS_TPRIM_DEF
+    int cds_tprim_fastsem_init(cds_tprim_fastsem_t *sem, cds_tprim_s32 n);
 
     /** @brief Destroy an existing semaphore object. */
-    CDS_TPRIM_DEF void cds_tprim_fastsem_destroy(cds_tprim_fastsem_t *sem);
+    CDS_TPRIM_DEF
+    void cds_tprim_fastsem_destroy(cds_tprim_fastsem_t *sem);
 
     /** @brief Decrement the semaphore's internal counter. If the
      *         counter is <=0, this call will block until it is
@@ -116,20 +117,23 @@ extern "C"
      * @return 0 if the semaphore was initialized successfully; non-zero
      *         if an error occurred.
      */
-    CDS_TPRIM_DEF void cds_tprim_fastsem_wait(cds_tprim_fastsem_t *sem);
+    CDS_TPRIM_DEF
+    void cds_tprim_fastsem_wait(cds_tprim_fastsem_t *sem);
 
     /** @brief Increment the semaphore's internal counter. If the counter is
      *         <=0, this call will wake a thread that had previously called
      *         sem_wait().
      */
-    CDS_TPRIM_DEF void cds_tprim_fastsem_post(cds_tprim_fastsem_t *sem);
+    CDS_TPRIM_DEF
+    void cds_tprim_fastsem_post(cds_tprim_fastsem_t *sem);
 
     /** @brief Functionally equivalent to calling sem_post() n
      *         times. This variant may be more efficient if the
      *         underlying OS semaphore allows multiple threads to be
      *         awakened with a single kernel call.
      */
-    CDS_TPRIM_DEF void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, cds_tprim_s32 n);
+    CDS_TPRIM_DEF
+    void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, cds_tprim_s32 n);
 
     /** @brief Retrieves the current value of the semaphore's internal
      *         counter, for debugging purposes. If the counter is
@@ -139,7 +143,8 @@ extern "C"
      *         resource to be posted.
      *  @return The current value of the semaphore's internal counter.
      */
-    CDS_TPRIM_DEF cds_tprim_s32 cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem);
+    CDS_TPRIM_DEF
+    cds_tprim_s32 cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem);
 
     /**
      * cds_tprim_eventcount_t -- an eventcount primitive, which lets you
@@ -161,23 +166,27 @@ extern "C"
     } cds_tprim_eventcount_t;
 
     /** @brief Initialize an eventcount object. */
-    CDS_TPRIM_DEF int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec);
+    CDS_TPRIM_DEF
+    int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec);
 
     /** @brief Destroy an eventcount object. */
-    CDS_TPRIM_DEF void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec);
+    CDS_TPRIM_DEF
+    void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec);
 
     /** @brief Return the current event count, in preparation for a
      *         call to wait().  Often called prepare_wait().
      *  @note This is *not* a simple query function; the internal
      *        object state is modified.
      */
-    CDS_TPRIM_DEF cds_tprim_s32 cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec);
+    CDS_TPRIM_DEF
+    cds_tprim_s32 cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec);
 
     /** @brief Wakes all threads waiting on an eventcount object, and
      *         increment the internal counter.  If no waiters are
      *         registered, this function is a no-op.
      */
-    CDS_TPRIM_DEF void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec);
+    CDS_TPRIM_DEF
+    void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec);
 
     /** @brief Compare the provided count to the eventcount object's
      *         internal counter; if they match, put the calling thread
@@ -185,7 +194,8 @@ extern "C"
      *         counts do not match, the caller returns more-or-less
      *         immediately.
      */
-    CDS_TPRIM_DEF void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp);
+    CDS_TPRIM_DEF
+    void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp);
 
     /**
      * cds_tprim_monsem_t -- A monitored semaphore is a semaphore that
@@ -202,33 +212,39 @@ extern "C"
     } cds_tprim_monsem_t;
 
     /** @brief Initialize a monitored semaphore to the specified value. */
-    CDS_TPRIM_DEF int  cds_tprim_monsem_init(cds_tprim_monsem_t *ms, cds_tprim_s32 count);
+    CDS_TPRIM_DEF
+    int cds_tprim_monsem_init(cds_tprim_monsem_t *ms, cds_tprim_s32 count);
 
     /** @brief Destroy a monitored semaphore object. */
-    CDS_TPRIM_DEF void cds_tprim_monsem_destroy(cds_tprim_monsem_t *ms);
+    CDS_TPRIM_DEF
+    void cds_tprim_monsem_destroy(cds_tprim_monsem_t *ms);
 
     /** @brief Waits for the semaphore value to reach a certain
      *         non-negative value.
      *  @note In this implementation, only one thread can call
      *        wait_for_waiters() at a time.
      */
-    CDS_TPRIM_DEF void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, cds_tprim_s32 waitForCount);
+    CDS_TPRIM_DEF
+    void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, cds_tprim_s32 waitForCount);
 
     /** @brief Decrement the semaphore. If the result is 0 or less, put the
      *         caller to sleep.
      */
-    CDS_TPRIM_DEF void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms);
+    CDS_TPRIM_DEF
+    void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms);
 
     /** @brief Increment the semaphore. If the counter was negative, wake a
      *         thread that was previously put to sleep by wait().
      */
-    CDS_TPRIM_DEF void cds_tprim_monsem_post(cds_tprim_monsem_t *ms);
+    CDS_TPRIM_DEF
+    void cds_tprim_monsem_post(cds_tprim_monsem_t *ms);
 
     /** @brief Increment the semaphore counter N times.
      *  @note  This is functionally equivalent to calling post() N times,
      *         but may be more efficient on some platforms.
      */
-    CDS_TPRIM_DEF void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, cds_tprim_s32 n);
+    CDS_TPRIM_DEF
+    void cds_tprim_monsem_postn(cds_tprim_monsem_t *ms, cds_tprim_s32 n);
 
     /**
      * cds_tprim_barrier_t -- A barrier that blocks several threads from
@@ -243,10 +259,12 @@ extern "C"
     /** @brief Initialize a barrier object for the provided number of
      *         threads.
      */
-    CDS_TPRIM_DEF int cds_tprim_barrier_init(cds_tprim_barrier_t *barrier, cds_tprim_s32 threadCount);
+    CDS_TPRIM_DEF
+    int cds_tprim_barrier_init(cds_tprim_barrier_t *barrier, cds_tprim_s32 threadCount);
 
     /** @brief Destroy an existing barrier object. */
-    CDS_TPRIM_DEF void cds_tprim_barrier_destroy(cds_tprim_barrier_t *barrier);
+    CDS_TPRIM_DEF
+    void cds_tprim_barrier_destroy(cds_tprim_barrier_t *barrier);
 
     /** @brief Enters a barrier's critical section. The 1..N-1th
      *         threads to enter the barrier are put to sleep; the Nth
@@ -257,7 +275,8 @@ extern "C"
      *       all threads have entered, and no thread will exit it
      *       until all threads are ready to exit.
      */
-    CDS_TPRIM_DEF void cds_tprim_barrier_enter(cds_tprim_barrier_t *barrier);
+    CDS_TPRIM_DEF
+    void cds_tprim_barrier_enter(cds_tprim_barrier_t *barrier);
 
     /* @brief Exits a barrier's critical section. The 1..N-1th threads
      *        to exit the barrier are put to sleep; the Nth thread
@@ -268,13 +287,15 @@ extern "C"
      *       all threads have entered, and no thread will exit it
      *       until all threads are ready to exit.
      */
-    CDS_TPRIM_DEF void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier);
+    CDS_TPRIM_DEF
+    void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier);
 
     /** @brief Helper function to call barrier_enter() and
      *         barrier_exit() in succession, if there's no code to run
      *         in the critical section.
      */
-    CDS_TPRIM_DEF CDS_TPRIM_INLINE void cds_tprim_barrier_wait(cds_tprim_barrier_t *barrier)
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_barrier_wait(cds_tprim_barrier_t *barrier)
     {
         cds_tprim_barrier_enter(barrier);
         cds_tprim_barrier_exit(barrier);
