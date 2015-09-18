@@ -918,7 +918,6 @@ static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { WaitForSingleObject(thread, INFINITE); CloseHandle(thread); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)GetCurrentThreadId(); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { YieldProcessor(); }
-static CDS_TPRIM_INLINE void cds_tprim_sleep_ms(int ms) { Sleep(ms); }
 #elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
 typedef pthread_t cds_tprim_thread_t;
 typedef void* cds_tprim_threadproc_return_t;
@@ -927,7 +926,6 @@ static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { pthread_join(thread, NULL); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)pthread_self(); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { pthread_yield(); }
-static CDS_TPRIM_INLINE void cds_tprim_sleep_ms(int ms) { uleep(1000*ms); }
 #endif
 
 static cds_tprim_s32 g_errorCount = 0;
@@ -1189,7 +1187,7 @@ static void testEventcount(void)
 int main(int argc, char *argv[])
 {
     int seed = time(NULL);
-    printf("random seed: 0x%08X\n");
+    printf("random seed: 0x%08X\n", seed);
     srand(seed);
 
     for(;;)
