@@ -678,6 +678,7 @@ void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
             /* spin */
         }
         cds_tprim_condvar_unlock(&ec->cv);
+        cds_tprim_condvar_broadcast(&ec->cv);
     }
 }
 void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp)
