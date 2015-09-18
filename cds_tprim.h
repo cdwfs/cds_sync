@@ -566,7 +566,7 @@ void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp)
 #elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     pthread_mutex_lock(&ec->mtx);
 #endif
-    while ((cds_tprim_atomic_load_s32(&ec->count, CDS_TPRIM_ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
+    if ((cds_tprim_atomic_load_s32(&ec->count, CDS_TPRIM_ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
     {
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
         SleepConditionVariableCS(&ec->cond, &ec->crit, INFINITE);
@@ -574,6 +574,11 @@ void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp)
         pthread_cond_wait(&ec->cond, &ec->mtx);
 #endif
     }
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+    LeaveCriticalSection(&ec->crit);
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+    pthread_mutex_unlock(&ec->mtx);
+#endif
 }
 
 
