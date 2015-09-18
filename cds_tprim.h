@@ -147,11 +147,46 @@ extern "C"
     cds_tprim_s32 cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem);
 
     /**
-     * cds_tprim_eventcount_t -- an eventcount primitive, which lets you
-     * indicate your interest in waiting for an event (with get()), and
-     * then only actually waiting if nothing else has signaled in the
-     * meantime. This ensures that the waiter only needs to wait if
-     * there's legitimately no event in the queue.
+     * cds_tprim_futex_t -- a mutex guaranteed to stay in user-mode unless
+     * necessary (i.e. a thread must be awaked or put to sleep).
+     */
+    typedef struct
+    {
+        cds_tprim_fastsem_t sem;
+    } cds_tprim_futex_t;
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    int cds_tprim_futex_init(cds_tprim_futex_t *ftx)
+    {
+        return cds_tprim_fastsem_init(&ftx->sem, 1);
+    }
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_futex_destroy(cds_tprim_futex_t *ftx)
+    {
+        cds_tprim_fastsem_destroy(&ftx->sem);
+    }
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_futex_lock(cds_tprim_futex_t *ftx)
+    {
+        cds_tprim_fastsem_wait(&ftx->sem);
+    }
+    
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_futex_unlock(cds_tprim_futex_t *ftx)
+    {
+        cds_tprim_fastsem_post(&ftx->sem);
+    }
+
+    /**
+     * cds_tprim_condvar_t -- currently just a portable wrapper around
+     * platform-specific condition variable implementation, with no
+     * extra fancy functionality.
+     *
+     * Note that since platform condition variables are often tightly
+     * coupled to platform mutexes, I've folded the associated mutex
+     * into this object as well.
      */
     typedef struct
     {
@@ -162,6 +197,93 @@ extern "C"
         pthread_cond_t cond;
         pthread_mutex_t mtx;
 #endif
+    } cds_tprim_condvar_t;
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    int cds_tprim_condvar_init(cds_tprim_condvar_t *cv)
+    {
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+        InitializeConditionVariable(&cv->cond);
+        InitializeCriticalSection(&cv->crit);
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+        pthread_cond_init(&cv->cond, 0);
+        pthread_mutex_init(&cv->mtx, 0);
+#endif
+        return 0;
+    }
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_condvar_destroy(cds_tprim_condvar_t *cv)
+    {
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+        /* Windows CONDITION_VARIABLE object do not need to be destroyed. */
+        DeleteCriticalSection(&cv->crit);
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+        pthread_cond_destroy(&cv->cond);
+        pthread_mutex_destroy(&cv->mtx);
+#endif
+    }
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_condvar_lock(cds_tprim_condvar_t *cv)
+    {
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+        EnterCriticalSection(&cv->crit);
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+        pthread_mutex_lock(&cv->mtx);
+#endif
+    }
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_condvar_unlock(cds_tprim_condvar_t *cv)
+    {
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+        LeaveCriticalSection(&cv->crit);
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+        pthread_mutex_unlock(&cv->mtx);
+#endif
+    }
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_condvar_wait(cds_tprim_condvar_t *cv)
+    {
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+        SleepConditionVariableCS(&cv->cond, &cv->crit, INFINITE);
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+        pthread_cond_wait(&cv->cond, &cv->mtx);
+#endif
+    }
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_condvar_signal(cds_tprim_condvar_t *cv)
+    {
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+        WakeConditionVariable(&cv->cond);
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+        pthread_cond_signal(&cv->cond);
+#endif
+    }
+
+    CDS_TPRIM_DEF CDS_TPRIM_INLINE
+    void cds_tprim_condvar_broadcast(cds_tprim_condvar_t *cv)
+    {
+#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+        WakeAllConditionVariable(&cv->cond);
+#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+        pthread_cond_broadcast(&cv->cond);
+#endif
+    }
+
+    /**
+     * cds_tprim_eventcount_t -- an eventcount primitive, which lets you
+     * indicate your interest in waiting for an event (with get()), and
+     * then only actually waiting if nothing else has signaled in the
+     * meantime. This ensures that the waiter only needs to wait if
+     * there's legitimately no event in the queue.
+     */
+    typedef struct
+    {
+        cds_tprim_condvar_t cv;
         cds_tprim_s32 count;
     } cds_tprim_eventcount_t;
 
@@ -532,25 +654,13 @@ cds_tprim_s32 cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem)
 /* cds_tprim_eventcount_t */
 int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
-    InitializeConditionVariable(&ec->cond);
-    InitializeCriticalSection(&ec->crit);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
-    pthread_cond_init(&ec->cond, 0);
-    pthread_mutex_init(&ec->mtx, 0);
-#endif
+    cds_tprim_condvar_init(&ec->cv);
     cds_tprim_atomic_store_s32(&ec->count, 0, CDS_TPRIM_ATOMIC_RELAXED);
     return 0;
 }
 void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec)
 {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
-    /* Windows CONDITION_VARIABLE object do not need to be destroyed. */
-    DeleteCriticalSection(&ec->crit);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
-    pthread_cond_destroy(&ec->cond);
-    pthread_mutex_destroy(&ec->mtx);
-#endif
+    cds_tprim_condvar_destroy(&ec->cv);
 }
 cds_tprim_s32 cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
 {
@@ -561,45 +671,23 @@ void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
     cds_tprim_s32 key = cds_tprim_atomic_fetch_add_s32(&ec->count, 0, CDS_TPRIM_ATOMIC_SEQ_CST);
     if (key & 1)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
-        EnterCriticalSection(&ec->crit);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
-        pthread_mutex_lock(&ec->mtx);
-#endif
+        cds_tprim_condvar_lock(&ec->cv);
         while (!cds_tprim_atomic_compare_exchange_s32(&ec->count, &key, (key+2) & ~1,
                 1, CDS_TPRIM_ATOMIC_SEQ_CST, CDS_TPRIM_ATOMIC_SEQ_CST))
         {
             /* spin */
         }
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
-        LeaveCriticalSection(&ec->crit);
-        WakeAllConditionVariable(&ec->cond);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
-        pthread_mutex_unlock(&ec->mtx);
-        pthread_cond_broadcast(&ec->cond);
-#endif
+        cds_tprim_condvar_unlock(&ec->cv);
     }
 }
 void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp)
 {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
-    EnterCriticalSection(&ec->crit);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
-    pthread_mutex_lock(&ec->mtx);
-#endif
+    cds_tprim_condvar_lock(&ec->cv);
     if ((cds_tprim_atomic_load_s32(&ec->count, CDS_TPRIM_ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
-        SleepConditionVariableCS(&ec->cond, &ec->crit, INFINITE);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
-        pthread_cond_wait(&ec->cond, &ec->mtx);
-#endif
+        cds_tprim_condvar_wait(&ec->cv);
     }
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
-    LeaveCriticalSection(&ec->crit);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
-    pthread_mutex_unlock(&ec->mtx);
-#endif
+    cds_tprim_condvar_unlock(&ec->cv);
 }
 
 
