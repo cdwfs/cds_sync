@@ -11,9 +11,9 @@
  *
  * For a unit test on Visual C++:
  *   "%VS120COMNTOOLS%\..\..\VC\vcvarsall.bat"
- *   cl -nologo -TC -DCDS_TPRIM_TEST cds_tprim.h
+ *   cl -nologo -TC -DCDS_TPRIM_TEST /Fe: test_tprim.exe cds_tprim.h
  * Debug-mode:
- *   cl -Od -Z7 -FC -MTd -nologo -TC -DCDS_TPRIM_TEST cds_tprim.h
+ *   cl -Od -Z7 -FC -MTd -nologo -TC -DCDS_TPRIM_TEST /Fe: test_tprim.exe cds_tprim.h
  */
 
 /* TODO:
