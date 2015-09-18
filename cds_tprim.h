@@ -917,6 +917,7 @@ typedef DWORD cds_tprim_threadproc_return_t;
 static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, LPTHREAD_START_ROUTINE startProc, void *args) { *pThread = CreateThread(NULL,0,startProc,args,0,NULL); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { WaitForSingleObject(thread, INFINITE); CloseHandle(thread); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)GetCurrentThreadId(); }
+static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { YieldProcessor(); }
 static CDS_TPRIM_INLINE void cds_tprim_sleep_ms(int ms) { Sleep(ms); }
 #elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
 typedef pthread_t cds_tprim_thread_t;
@@ -925,6 +926,7 @@ typedef void* cds_tprim_threadproc_return_t;
 static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, void *(*startProc)(void*), void *args) { pthread_create(pThread,NULL,startProc,args); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { pthread_join(thread, NULL); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)pthread_self(); }
+static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { pthread_yield(); }
 static CDS_TPRIM_INLINE void cds_tprim_sleep_ms(int ms) { uleep(1000*ms); }
 #endif
 
@@ -1109,6 +1111,9 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testQueuePopper(void *
         }
         /* queue was empty; get() the EC and try again */
         count = cds_tprim_eventcount_get(&args->ec);
+        /* A yield here isn't necessary, but helps to encourage EC errors
+         * (if any) to manifest. */
+        cds_tprim_thread_yield();
         cds_tprim_fastsem_wait(&args->mtx);
         if (args->readIndex < args->writeIndex)
         {
@@ -1156,7 +1161,6 @@ static void testEventcount(void)
     for(;;)
     {
         cds_tprim_s32 numPushes = rand() % 4 + 1;
-        int sleepMs = rand() % 2;
         if (args.writeIndex + numPushes > CDS_TEST_QUEUE_LENGTH)
             numPushes = CDS_TEST_QUEUE_LENGTH - args.writeIndex;
         cds_tprim_atomic_fetch_add_s32(&args.writeIndex, numPushes, CDS_TPRIM_ATOMIC_SEQ_CST);
@@ -1165,7 +1169,7 @@ static void testEventcount(void)
         {
             break;
         }
-        cds_tprim_sleep_ms(sleepMs);
+        cds_tprim_thread_yield();
     }
     
     for(iPopper=0; iPopper<kNumPoppers; ++iPopper)
