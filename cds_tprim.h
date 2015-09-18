@@ -514,14 +514,12 @@ int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     InitializeConditionVariable(&ec->cond);
     InitializeCriticalSection(&ec->crit);
-    ec->count = 0;
-    return 0;
 #elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
     pthread_cond_init(&ec->cond, 0);
     pthread_mutex_init(&ec->mtx, 0);
-    __atomic_store_n(&ec->count, 0, __ATOMIC_RELAXED);
-    return 0;
 #endif
+    cds_tprim_atomic_store_s32(&ec->count, 0, CDS_TPRIM_ATOMIC_RELAXED);
+    return 0;
 }
 void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec)
 {
@@ -539,7 +537,7 @@ cds_tprim_s32 cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
 }
 void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
 {
-    cds_tprim_s32 key = ec->count;
+    cds_tprim_s32 key = cds_tprim_atomic_fetch_add_s32(&ec->count, 0, CDS_TPRIM_ATOMIC_SEQ_CST);
     if (key & 1)
     {
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
