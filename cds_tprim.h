@@ -171,7 +171,7 @@ extern "C"
      *  @note This is *not* a simple query function; the internal
      *        object state is modified.
      */
-    CDS_TPRIM_DEF int cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec);
+    CDS_TPRIM_DEF cds_tprim_s32 cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec);
 
     /** @brief Wakes all threads waiting on an eventcount object, and
      *         increment the internal counter.  If no waiters are
@@ -528,7 +528,7 @@ void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec)
     pthread_mutex_destroy(&ec->mtx);
 #endif
 }
-int cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
+cds_tprim_s32 cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
 {
     return cds_tprim_atomic_fetch_or_s32(&ec->count, 1, CDS_TPRIM_ATOMIC_ACQUIRE);
 }
