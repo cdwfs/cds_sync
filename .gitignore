@@ -1,6 +1,7 @@
 GPATH
 GRTAGS
 GTAGS
+GSYMS
 
 # Visual Studio droppings
 *.exe
