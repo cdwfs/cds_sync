@@ -1077,10 +1077,15 @@ static void testDancers(void)
 }
 
 #define CDS_TEST_QUEUE_LENGTH 100
+/* #define CDS_TEST_QUEUE_ENABLE_BROKEN_CV */
 typedef struct cds_test_queue_args_t
 {
-    cds_tprim_fastsem_t mtx; /* protects queue; too lazy to write a lockless */
+    cds_tprim_futex_t mtx; /* protects queue; too lazy to write a lockless */
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
+    cds_tprim_condvar_t cv;
+#else
     cds_tprim_eventcount_t ec;
+#endif
     cds_tprim_s32 input[CDS_TEST_QUEUE_LENGTH];
     cds_tprim_s32 output[CDS_TEST_QUEUE_LENGTH];
     cds_tprim_s32 readIndex, writeIndex;
@@ -1094,13 +1099,13 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testQueuePopper(void *
         cds_tprim_s32 count = 0;
         int gotOne = 0;
         cds_tprim_s32 ri, wi;
-        cds_tprim_fastsem_wait(&args->mtx);
+        cds_tprim_futex_lock(&args->mtx);
         if (args->readIndex < args->writeIndex)
         {
             n = args->input[args->readIndex++];
             gotOne = 1;
         }
-        cds_tprim_fastsem_post(&args->mtx);
+        cds_tprim_futex_unlock(&args->mtx);
         if (gotOne)
         {
             if (args->output[abs(n)] != 0)
@@ -1108,18 +1113,30 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testQueuePopper(void *
             args->output[abs(n)] += n;
             continue;
         }
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
+        /* A pure CV-based approach suffers from lost wakeups; if the cond_signal()
+           occurs between the test for an empty queue and the call to
+           condvar_wait(), we won't wake up! */
+           
+        /* A yield here isn't necessary, but helps to encourage race conditions
+           (if any) to manifest. */
+        cds_tprim_thread_yield();
+        cds_tprim_condvar_lock(&args->cv);
+        cds_tprim_condvar_wait(&args->cv);
+        cds_tprim_condvar_unlock(&args->cv);
+#else
         /* queue was empty; get() the EC and try again */
         count = cds_tprim_eventcount_get(&args->ec);
-        /* A yield here isn't necessary, but helps to encourage EC errors
+        /* A yield here isn't necessary, but helps to encourage race conditions
          * (if any) to manifest. */
         cds_tprim_thread_yield();
-        cds_tprim_fastsem_wait(&args->mtx);
+        cds_tprim_futex_lock(&args->mtx);
         if (args->readIndex < args->writeIndex)
         {
             n = args->input[args->readIndex++];
             gotOne = 1;
         }
-        cds_tprim_fastsem_post(&args->mtx);
+        cds_tprim_futex_unlock(&args->mtx);
         if (gotOne)
         {
             /* TODO: cancel EC get()? */
@@ -1130,6 +1147,8 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testQueuePopper(void *
         }
         /* queue still empty; wait until it has something available. */
         cds_tprim_eventcount_wait(&args->ec, count);
+#endif
+
     }
     return 0;
 }
@@ -1140,8 +1159,12 @@ static void testEventcount(void)
     cds_tprim_thread_t *popperThreads = NULL;
     const int kNumPoppers = 8;
 
-    cds_tprim_fastsem_init(&args.mtx, 1);
+    cds_tprim_futex_init(&args.mtx);
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
+    cds_tprim_condvar_init(&args.cv);
+#else
     cds_tprim_eventcount_init(&args.ec);
+#endif
     for(iEntry=0; iEntry<CDS_TEST_QUEUE_LENGTH; ++iEntry)
     {
         args.input[iEntry]  = (iEntry+kNumPoppers < CDS_TEST_QUEUE_LENGTH) ? iEntry : -iEntry;
@@ -1163,7 +1186,11 @@ static void testEventcount(void)
         if (args.writeIndex + numPushes > CDS_TEST_QUEUE_LENGTH)
             numPushes = CDS_TEST_QUEUE_LENGTH - args.writeIndex;
         cds_tprim_atomic_fetch_add_s32(&args.writeIndex, numPushes, CDS_TPRIM_ATOMIC_SEQ_CST);
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
+        cds_tprim_condvar_broadcast(&args.cv);
+#else
         cds_tprim_eventcount_signal(&args.ec);
+#endif
         if (args.writeIndex == CDS_TEST_QUEUE_LENGTH)
         {
             break;
@@ -1183,6 +1210,13 @@ static void testEventcount(void)
             ++g_errorCount;
         }
     }
+    
+    cds_tprim_futex_destroy(&args.mtx);
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
+    cds_tprim_condvar_destroy(&args.cv);
+#else
+    cds_tprim_eventcount_destroy(&args.ec);
+#endif
 }
 
 int main(int argc, char *argv[])
