@@ -245,7 +245,7 @@ extern "C"
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
-    void cds_tprim_condvar_wait(cds_tprim_condvar_t *cv)
+    void cds_tprim_condvar_unlock_and_wait(cds_tprim_condvar_t *cv)
     {
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
         SleepConditionVariableCS(&cv->cond, &cv->crit, INFINITE);
@@ -686,7 +686,7 @@ void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp)
     cds_tprim_condvar_lock(&ec->cv);
     if ((cds_tprim_atomic_load_s32(&ec->count, CDS_TPRIM_ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
     {
-        cds_tprim_condvar_wait(&ec->cv);
+        cds_tprim_condvar_unlock_and_wait(&ec->cv);
     }
     cds_tprim_condvar_unlock(&ec->cv);
 }
@@ -1116,13 +1116,13 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testQueuePopper(void *
 #if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
         /* A pure CV-based approach suffers from lost wakeups; if the cond_signal()
            occurs between the test for an empty queue and the call to
-           condvar_wait(), we won't wake up! */
+           condvar_unlock_and_wait(), we won't wake up! */
            
         /* A yield here isn't necessary, but helps to encourage race conditions
            (if any) to manifest. */
         cds_tprim_thread_yield();
         cds_tprim_condvar_lock(&args->cv);
-        cds_tprim_condvar_wait(&args->cv);
+        cds_tprim_condvar_unlock_and_wait(&args->cv);
         cds_tprim_condvar_unlock(&args->cv);
 #else
         /* queue was empty; get() the EC and try again */
