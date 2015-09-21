@@ -16,10 +16,6 @@
  *   cl -Od -Z7 -FC -MTd -nologo -TC -DCDS_TPRIM_TEST /Fe: test_tprim.exe cds_tprim.h
  */
 
-/* TODO:
- * - move to feature tests (CDS_TPRIM_HAS_XXX), not platform tests.
- */
-
 #if !defined(CDS_TPRIM_H)
 #define CDS_TPRIM_H
 
@@ -28,14 +24,26 @@ extern "C"
 {
 #endif
 
-#if defined(_MSC_VER)
+#if   defined(_MSC_VER)
 #   define CDS_TPRIM_PLATFORM_WINDOWS
+#   define CDS_TPRIM_HAS_WINDOWS_SEMAPHORES
+#   define CDS_TPRIM_HAS_WINDOWS_CONDVARS
+#   define CDS_TPRIM_HAS_WINDOWS_ATOMICS
+#   define CDS_TPRIM_HAS_WINDOWS_THREADS
 #elif defined(__APPLE__) && defined(__MACH__)
 #   define CDS_TPRIM_PLATFORM_OSX
+#   define CDS_TPRIM_HAS_GCD_SEMAPHORES
+#   define CDS_TPRIM_HAS_POSIX_CONDVARS
+#   define CDS_TPRIM_HAS_GCC_ATOMICS
+#   define CDS_TPRIM_HAS_POSIX_THREADS
 #elif defined(unix) || defined(__unix__) || defined(__unix)
 #   include <unistd.h>
 #   if defined(_POSIX_THREADS) && defined(_POSIX_SEMAPHORES)
 #       define CDS_TPRIM_PLATFORM_POSIX
+#       define CDS_TPRIM_HAS_POSIX_SEMAPHORES
+#       define CDS_TPRIM_HAS_POSIX_CONDVARS
+#       define CDS_TPRIM_HAS_GCC_ATOMICS
+#       define CDS_TPRIM_HAS_POSIX_THREADS
 #   else
 #       error Unsupported compiler/platform (non-POSIX unix)
 #   endif
@@ -49,7 +57,7 @@ extern "C"
 #   define CDS_TPRIM_DEF extern
 #endif
 
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_PLATFORM_WINDOWS)
 #   define CDS_TPRIM_INLINE __forceinline
 #elif defined(CDS_TPRIM_PLATFORM_OSX)
 #   ifdef __cplusplus
@@ -65,14 +73,22 @@ extern "C"
 #   endif
 #endif
 
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
 #   include <windows.h>
-#elif defined(CDS_TPRIM_PLATFORM_OSX)
-#   include <pthread.h>
+#elif defined(CDS_TPRIM_HAS_GCD_SEMAPHORES)
 #   include <dispatch/dispatch.h>
-#elif defined(CDS_TPRIM_PLATFORM_POSIX)
-#   include <pthread.h>
+#elif defined(CDS_TPRIM_HAS_POSIX_SEMAPHORES)
 #   include <semaphore.h>
+#else
+#   error Unsupported compiler/platform
+#endif
+
+#if defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
+    /* windows.h already included */
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
+#   include <pthread.h>
+#else
+#   error Unsupported compiler/platform
 #endif
 
 #if defined(_MSC_VER) && (_MSC_VER < 1700)
@@ -94,12 +110,14 @@ extern "C"
      */
     typedef struct
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
         HANDLE handle;
-#elif defined(CDS_TPRIM_PLATFORM_OSX)
+#elif defined(CDS_TPRIM_HAS_GCD_SEMAPHORES)
         dispatch_semaphore_t sem;
-#elif defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_SEMAPHORES)
         sem_t sem;
+#else
+#   error Unsupported compiler/platform
 #endif
         cds_tprim_s32 count;
     } cds_tprim_fusem_t;
@@ -175,7 +193,7 @@ extern "C"
     {
         cds_tprim_fusem_wait(&ftx->sem);
     }
-    
+
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_futex_unlock(cds_tprim_futex_t *ftx)
     {
@@ -193,24 +211,28 @@ extern "C"
      */
     typedef struct
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         CONDITION_VARIABLE cond;
         CRITICAL_SECTION crit;
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
         pthread_cond_t cond;
         pthread_mutex_t mtx;
+#else
+#   error Unsupported compiler/platform
 #endif
     } cds_tprim_condvar_t;
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     int cds_tprim_condvar_init(cds_tprim_condvar_t *cv)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         InitializeConditionVariable(&cv->cond);
         InitializeCriticalSection(&cv->crit);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
         pthread_cond_init(&cv->cond, 0);
         pthread_mutex_init(&cv->mtx, 0);
+#else
+#   error Unsupported compiler/platform
 #endif
         return 0;
     }
@@ -218,62 +240,74 @@ extern "C"
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_condvar_destroy(cds_tprim_condvar_t *cv)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         /* Windows CONDITION_VARIABLE object do not need to be destroyed. */
         DeleteCriticalSection(&cv->crit);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
         pthread_cond_destroy(&cv->cond);
         pthread_mutex_destroy(&cv->mtx);
+#else
+#   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_condvar_lock(cds_tprim_condvar_t *cv)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         EnterCriticalSection(&cv->crit);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
         pthread_mutex_lock(&cv->mtx);
+#else
+#   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_condvar_unlock(cds_tprim_condvar_t *cv)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         LeaveCriticalSection(&cv->crit);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
         pthread_mutex_unlock(&cv->mtx);
+#else
+#   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_condvar_unlock_and_wait(cds_tprim_condvar_t *cv)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         SleepConditionVariableCS(&cv->cond, &cv->crit, INFINITE);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
         pthread_cond_wait(&cv->cond, &cv->mtx);
+#else
+#   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_condvar_signal(cds_tprim_condvar_t *cv)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         WakeConditionVariable(&cv->cond);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
         pthread_cond_signal(&cv->cond);
+#else
+#   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_condvar_broadcast(cds_tprim_condvar_t *cv)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         WakeAllConditionVariable(&cv->cond);
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS
         pthread_cond_broadcast(&cv->cond);
+#else
+#   error Unsupported compiler/platform
 #endif
     }
 
@@ -450,7 +484,7 @@ extern "C"
 /* Silly Windows, not providing gcc-style atomic intrinsics. This is
  * not an exhaustive implementation; it's only the subset used by
  * cds_tprim. Note: not all ATOMIC_* memory orderings have an effect on Windows. */
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if defined(CDS_TPRIM_HAS_WINDOWS_ATOMICS)
 #   define CDS_TPRIM_ATOMIC_RELAXED  0 /* Implies no inter-thread ordering constraints. */
 #   define CDS_TPRIM_ATOMIC_CONSUME  1 /* Currently just an alias for ACQUIRE. */
 #   define CDS_TPRIM_ATOMIC_ACQUIRE  2 /* Imposes a happens-before constraint from a release-store. Prevents load-hoisting. */
@@ -521,7 +555,7 @@ static CDS_TPRIM_INLINE int cds_tprim_atomic_compare_exchange_s32(cds_tprim_s32 
     cds_tprim_atomic_store_s32(expected, original, CDS_TPRIM_ATOMIC_SEQ_CST);
     return success;
 }
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_GCC_ATOMICS)
 #   define CDS_TPRIM_ATOMIC_RELAXED  __ATOMIC_RELAXED
 #   define CDS_TPRIM_ATOMIC_CONSUME  __ATOMIC_CONSUME
 #   define CDS_TPRIM_ATOMIC_ACQUIRE  __ATOMIC_ACQUIRE
@@ -537,36 +571,42 @@ static CDS_TPRIM_INLINE int cds_tprim_atomic_compare_exchange_s32(cds_tprim_s32 
 {
     return __atomic_compare_exchange_n(ptr, expected, desired, weak, success_memorder, failure_memorder);
 }
+#else
+#   error Unsupported compiler/platform
 #endif
 
 /* cds_tprim_fusem_t */
 int cds_tprim_fusem_init(cds_tprim_fusem_t *sem, cds_tprim_s32 n)
 {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if   defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
     sem->count = n;
     sem->handle = CreateSemaphore(NULL, 0, LONG_MAX, NULL);
     if (sem->handle == NULL)
         return GetLastError();
     return 0;
-#elif defined(CDS_TPRIM_PLATFORM_OSX)
+#elif defined(CDS_TPRIM_HAS_GCD_SEMAPHORES)
     sem->sem = dispatch_semaphore_create(0);
     sem->count = n;
     return (sem->sem != NULL) ? 0 : -1;
-#elif defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_SEMAPHORES)
     int err = sem_init(&sem->sem, 0, 0);
     sem->count = n;
     return err;
+#else
+#   error Unsupported compiler/platform
 #endif
 }
 
 void cds_tprim_fusem_destroy(cds_tprim_fusem_t *sem)
 {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
     CloseHandle(sem->handle);
-#elif defined(CDS_TPRIM_PLATFORM_OSX)
+#elif defined(CDS_TPRIM_HAS_GCD_SEMAPHORES)
     dispatch_release(sem->sem);
-#elif defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_SEMAPHORES)
     sem_destroy(&sem->sem);
+#else
+#   error Unsupported compiler/platform
 #endif
 }
 
@@ -589,12 +629,14 @@ static CDS_TPRIM_INLINE void cds_tprim_fusem_wait_no_spin(cds_tprim_fusem_t *sem
 {
     if (cds_tprim_atomic_fetch_add_s32(&sem->count, -1, CDS_TPRIM_ATOMIC_ACQ_REL) < 1)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
         WaitForSingleObject(sem->handle, INFINITE);
-#elif defined(CDS_TPRIM_PLATFORM_OSX)
+#elif defined(CDS_TPRIM_HAS_GCD_SEMAPHORES)
         dispatch_semaphore_wait(sem->sem, DISPATCH_TIME_FOREVER);
-#elif defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_SEMAPHORES)
         sem_wait(&sem->sem);
+#else
+#   error Unsupported compiler/platform
 #endif
     }
 }
@@ -616,12 +658,14 @@ void cds_tprim_fusem_post(cds_tprim_fusem_t *sem)
 {
     if (cds_tprim_atomic_fetch_add_s32(&sem->count, 1, CDS_TPRIM_ATOMIC_ACQ_REL) < 0)
     {
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
         ReleaseSemaphore(sem->handle, 1, 0);
-#elif defined(CDS_TPRIM_PLATFORM_OSX)
+#elif defined(CDS_TPRIM_HAS_GCD_SEMAPHORES)
         dispatch_semaphore_signal(sem->sem);
-#elif defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_SEMAPHORES)
         sem_post(&sem->sem);
+#else
+#   error Unsupported compiler/platform
 #endif
     }
 }
@@ -633,22 +677,24 @@ void cds_tprim_fusem_postn(cds_tprim_fusem_t *sem, cds_tprim_s32 n)
     {
         cds_tprim_s32 numWaiters = -oldCount;
         cds_tprim_s32 numToWake = CDS_TPRIM_MIN(numWaiters, n);
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
         ReleaseSemaphore(sem->handle, numToWake, 0);
-#elif defined(CDS_TPRIM_PLATFORM_OSX)
+#elif defined(CDS_TPRIM_HAS_GCD_SEMAPHORES)
         /* wakeN would be better than a loop here, but hey */
         cds_tprim_s32 iWake;
         for(iWake=0; iWake<numToWake; iWake += 1)
         {
             dispatch_semaphore_signal(sem->sem);
         }
-#elif defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_SEMAPHORES)
         /* wakeN would be better than a loop here, but hey */
         cds_tprim_s32 iWake;
         for(iWake=0; iWake<numToWake; iWake += 1)
         {
             sem_post(&sem->sem);
         }
+#else
+#   error Unsupported compiler/platform
 #endif
     }
 }
@@ -919,7 +965,7 @@ void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier)
 #include <string.h>
 
 /* Minimal thread management wrappers */
-#if defined(CDS_TPRIM_PLATFORM_WINDOWS)
+#if defined(CDS_TPRIM_HAS_WINDOWS_THREADS)
 typedef HANDLE cds_tprim_thread_t;
 typedef DWORD cds_tprim_threadproc_return_t;
 #   define CDS_TPRIM_THREADPROC WINAPI
@@ -927,7 +973,7 @@ static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { WaitForSingleObject(thread, INFINITE); CloseHandle(thread); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)GetCurrentThreadId(); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { YieldProcessor(); }
-#elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
+#elif defined(CDS_TPRIM_HAS_POSIX_THREADS)
 typedef pthread_t cds_tprim_thread_t;
 typedef void* cds_tprim_threadproc_return_t;
 #   define CDS_TPRIM_THREADPROC
@@ -1033,7 +1079,7 @@ static void testDancers(void)
     cds_tprim_thread_t *leaderThreads = NULL, *followerThreads = NULL;
     const int kNumLeaders = 8, kNumFollowers = 8;
     int iLeader=0, iFollower=0, iRound=0;
-    
+
     dancerArgs.roundIndex = 0;
     memset(dancerArgs.rounds, 0, sizeof(dancerArgs.rounds));
     cds_tprim_fusem_init(&dancerArgs.queueL, 0);
@@ -1041,7 +1087,7 @@ static void testDancers(void)
     cds_tprim_fusem_init(&dancerArgs.mutexL, 1);
     cds_tprim_fusem_init(&dancerArgs.mutexF, 1);
     cds_tprim_fusem_init(&dancerArgs.rendezvous, 0);
-    
+
     leaderThreads = (cds_tprim_thread_t*)malloc(kNumLeaders*sizeof(cds_tprim_thread_t));
     for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
     {
@@ -1125,7 +1171,7 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testQueuePopper(void *
         /* A pure CV-based approach suffers from lost wakeups; if the cond_signal()
            occurs between the test for an empty queue and the call to
            condvar_unlock_and_wait(), we won't wake up! */
-           
+
         /* A yield here isn't necessary, but helps to encourage race conditions
            (if any) to manifest. */
         cds_tprim_thread_yield();
@@ -1186,7 +1232,7 @@ static void testEventcount(void)
     {
         cds_tprim_thread_create(&popperThreads[iPopper], testQueuePopper, &args);
     }
-    
+
     iEntry=0;
     for(;;)
     {
@@ -1205,7 +1251,7 @@ static void testEventcount(void)
         }
         cds_tprim_thread_yield();
     }
-    
+
     for(iPopper=0; iPopper<kNumPoppers; ++iPopper)
     {
         cds_tprim_thread_join(popperThreads[iPopper]);
@@ -1218,7 +1264,7 @@ static void testEventcount(void)
             ++g_errorCount;
         }
     }
-    
+
     cds_tprim_futex_destroy(&args.mtx);
 #if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
     cds_tprim_condvar_destroy(&args.cv);
@@ -1237,7 +1283,7 @@ int main(int argc, char *argv[])
     {
         testDancers();
         printf("error count after testDancers():    %d\n", g_errorCount);
-        
+
         testEventcount();
         printf("error count after testEventcount(): %d\n", g_errorCount);
     }
