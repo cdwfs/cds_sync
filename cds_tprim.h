@@ -499,24 +499,25 @@ static CDS_TPRIM_INLINE int cds_tprim_atomic_compare_exchange_s32(cds_tprim_s32 
     int success;
     CDS_TPRIM_UNUSED(weak);
     CDS_TPRIM_UNUSED(failure_memorder);
+    cds_tprim_s32 exp = cds_tprim_atomic_load_s32(expected, CDS_TPRIM_ATOMIC_SEQ_CST);
     switch(success_memorder)
     {
     case CDS_TPRIM_ATOMIC_RELAXED:
-        original = InterlockedCompareExchangeNoFence(ptr, desired, *expected);
+        original = InterlockedCompareExchangeNoFence(ptr, desired, exp);
         break;
     case CDS_TPRIM_ATOMIC_ACQUIRE:
-        original = InterlockedCompareExchangeAcquire(ptr, desired, *expected);
+        original = InterlockedCompareExchangeAcquire(ptr, desired, exp);
         break;
     case CDS_TPRIM_ATOMIC_ACQ_REL:
     case CDS_TPRIM_ATOMIC_SEQ_CST:
-        original = InterlockedCompareExchange(ptr, desired, *expected);
+        original = InterlockedCompareExchange(ptr, desired, exp);
         break;
     default:
         assert(0); /* unsupported memory order */
-        original = InterlockedCompareExchange(ptr, desired, *expected);
+        original = InterlockedCompareExchange(ptr, desired, exp);
         break;
     }
-    success = (original == cds_tprim_atomic_load_s32(expected, CDS_TPRIM_ATOMIC_SEQ_CST)) ? 1 : 0;
+    success = (original == exp) ? 1 : 0;
     cds_tprim_atomic_store_s32(expected, original, CDS_TPRIM_ATOMIC_SEQ_CST);
     return success;
 }
