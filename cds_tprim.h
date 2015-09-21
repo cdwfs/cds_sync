@@ -304,7 +304,7 @@ extern "C"
     {
 #if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         WakeAllConditionVariable(&cv->cond);
-#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS
+#elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
         pthread_cond_broadcast(&cv->cond);
 #else
 #   error Unsupported compiler/platform
