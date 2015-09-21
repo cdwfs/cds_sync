@@ -449,24 +449,26 @@ extern "C"
 
 /* Silly Windows, not providing gcc-style atomic intrinsics. This is
  * not an exhaustive implementation; it's only the subset used by
- * cds_tprim. */
+ * cds_tprim. Note: not all ATOMIC_* memory orderings have an effect on Windows. */
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
-#   define CDS_TPRIM_ATOMIC_SEQ_CST  0
-#   define CDS_TPRIM_ATOMIC_ACQUIRE  1
-#   define CDS_TPRIM_ATOMIC_RELAXED  2
-#   define CDS_TPRIM_ATOMIC_ACQ_REL  3
+#   define CDS_TPRIM_ATOMIC_RELAXED  0 /* Implies no inter-thread ordering constraints. */
+#   define CDS_TPRIM_ATOMIC_CONSUME  1 /* Currently just an alias for ACQUIRE. */
+#   define CDS_TPRIM_ATOMIC_ACQUIRE  2 /* Imposes a happens-before constraint from a release-store. Prevents load-hoisting. */
+#   define CDS_TPRIM_ATOMIC_RELEASE  3 /* Imposes a happens-before constraint to an acquire-load. Prevents store-sinking. */
+#   define CDS_TPRIM_ATOMIC_ACQ_REL  4 /* Combines ACQUIRE and RELEASE. Stores won't be sunk; loads won't be hoisted. */
+#   define CDS_TPRIM_ATOMIC_SEQ_CST  5 /* Enforces total ordering with all other SEQ_CST operations. */
 static CDS_TPRIM_INLINE cds_tprim_s32 cds_tprim_atomic_load_s32(cds_tprim_s32 *ptr, int memorder) { CDS_TPRIM_UNUSED(memorder); return *ptr; }
 static CDS_TPRIM_INLINE void    cds_tprim_atomic_store_s32(cds_tprim_s32 *ptr, cds_tprim_s32 val, int memorder) { CDS_TPRIM_UNUSED(memorder); *ptr = val; }
 static CDS_TPRIM_INLINE cds_tprim_s32 cds_tprim_atomic_fetch_add_s32(cds_tprim_s32 *ptr, cds_tprim_s32 val, int memorder)
 {
     switch(memorder)
     {
-    case CDS_TPRIM_ATOMIC_ACQUIRE:
-        return InterlockedExchangeAddAcquire(ptr, val);
     case CDS_TPRIM_ATOMIC_RELAXED:
         return InterlockedExchangeAddNoFence(ptr, val);
-    case CDS_TPRIM_ATOMIC_SEQ_CST:
+    case CDS_TPRIM_ATOMIC_ACQUIRE:
+        return InterlockedExchangeAddAcquire(ptr, val);
     case CDS_TPRIM_ATOMIC_ACQ_REL:
+    case CDS_TPRIM_ATOMIC_SEQ_CST:
         return InterlockedExchangeAdd(ptr, val);
     default:
         assert(0); /* unsupported memory order */
@@ -477,12 +479,12 @@ static CDS_TPRIM_INLINE cds_tprim_s32 cds_tprim_atomic_fetch_or_s32(cds_tprim_s3
 {
     switch(memorder)
     {
-    case CDS_TPRIM_ATOMIC_ACQUIRE:
-        return InterlockedOrAcquire(ptr, val);
     case CDS_TPRIM_ATOMIC_RELAXED:
         return InterlockedOrNoFence(ptr, val);
-    case CDS_TPRIM_ATOMIC_SEQ_CST:
+    case CDS_TPRIM_ATOMIC_ACQUIRE:
+        return InterlockedOrAcquire(ptr, val);
     case CDS_TPRIM_ATOMIC_ACQ_REL:
+    case CDS_TPRIM_ATOMIC_SEQ_CST:
         return InterlockedOr(ptr, val);
     default:
         assert(0); /* unsupported memory order */
@@ -499,14 +501,14 @@ static CDS_TPRIM_INLINE int cds_tprim_atomic_compare_exchange_s32(cds_tprim_s32 
     CDS_TPRIM_UNUSED(failure_memorder);
     switch(success_memorder)
     {
-    case CDS_TPRIM_ATOMIC_ACQUIRE:
-        original = InterlockedCompareExchangeAcquire(ptr, desired, *expected);
-        break;
     case CDS_TPRIM_ATOMIC_RELAXED:
         original = InterlockedCompareExchangeNoFence(ptr, desired, *expected);
         break;
-    case CDS_TPRIM_ATOMIC_SEQ_CST:
+    case CDS_TPRIM_ATOMIC_ACQUIRE:
+        original = InterlockedCompareExchangeAcquire(ptr, desired, *expected);
+        break;
     case CDS_TPRIM_ATOMIC_ACQ_REL:
+    case CDS_TPRIM_ATOMIC_SEQ_CST:
         original = InterlockedCompareExchange(ptr, desired, *expected);
         break;
     default:
@@ -519,10 +521,12 @@ static CDS_TPRIM_INLINE int cds_tprim_atomic_compare_exchange_s32(cds_tprim_s32 
     return success;
 }
 #elif defined(CDS_TPRIM_PLATFORM_OSX) || defined(CDS_TPRIM_PLATFORM_POSIX)
-#   define CDS_TPRIM_ATOMIC_SEQ_CST  __ATOMIC_SEQ_CST
-#   define CDS_TPRIM_ATOMIC_ACQUIRE  __ATOMIC_ACQUIRE
 #   define CDS_TPRIM_ATOMIC_RELAXED  __ATOMIC_RELAXED
+#   define CDS_TPRIM_ATOMIC_CONSUME  __ATOMIC_CONSUME
+#   define CDS_TPRIM_ATOMIC_ACQUIRE  __ATOMIC_ACQUIRE
+#   define CDS_TPRIM_ATOMIC_RELEASE  __ATOMIC_RELEASE
 #   define CDS_TPRIM_ATOMIC_ACQ_REL  __ATOMIC_ACQ_REL
+#   define CDS_TPRIM_ATOMIC_SEQ_CST  __ATOMIC_SEQ_CST
 static CDS_TPRIM_INLINE cds_tprim_s32 cds_tprim_atomic_load_s32(cds_tprim_s32 *ptr, int memorder) { return __atomic_load_n(ptr, memorder); }
 static CDS_TPRIM_INLINE void    cds_tprim_atomic_store_s32(cds_tprim_s32 *ptr, cds_tprim_s32 val, int memorder) { return __atomic_store_n(ptr, val, memorder); }
 static CDS_TPRIM_INLINE cds_tprim_s32 cds_tprim_atomic_fetch_add_s32(cds_tprim_s32 *ptr, cds_tprim_s32 val, int memorder) { return __atomic_fetch_add(ptr, val, memorder); }
