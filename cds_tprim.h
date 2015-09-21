@@ -88,8 +88,9 @@ extern "C"
 #endif
 
     /**
-     * cds_tprim_fastsem_t -- a semaphore guaranteed to stay in user code
-     * unless necessary (i.e. a thread must be awakened or put to sleep).
+     * cds_tprim_fusem_t -- a "fast userspace" semaphore, guaranteed
+     * to stay in user code unless necessary (i.e. a thread must be
+     * awakened or put to sleep).
      */
     typedef struct
     {
@@ -101,15 +102,15 @@ extern "C"
         sem_t sem;
 #endif
         cds_tprim_s32 count;
-    } cds_tprim_fastsem_t;
+    } cds_tprim_fusem_t;
 
     /** @brief Initialize a semaphore to the specified value. */
     CDS_TPRIM_DEF
-    int cds_tprim_fastsem_init(cds_tprim_fastsem_t *sem, cds_tprim_s32 n);
+    int cds_tprim_fusem_init(cds_tprim_fusem_t *sem, cds_tprim_s32 n);
 
     /** @brief Destroy an existing semaphore object. */
     CDS_TPRIM_DEF
-    void cds_tprim_fastsem_destroy(cds_tprim_fastsem_t *sem);
+    void cds_tprim_fusem_destroy(cds_tprim_fusem_t *sem);
 
     /** @brief Decrement the semaphore's internal counter. If the
      *         counter is <=0, this call will block until it is
@@ -118,14 +119,14 @@ extern "C"
      *         if an error occurred.
      */
     CDS_TPRIM_DEF
-    void cds_tprim_fastsem_wait(cds_tprim_fastsem_t *sem);
+    void cds_tprim_fusem_wait(cds_tprim_fusem_t *sem);
 
     /** @brief Increment the semaphore's internal counter. If the counter is
      *         <=0, this call will wake a thread that had previously called
      *         sem_wait().
      */
     CDS_TPRIM_DEF
-    void cds_tprim_fastsem_post(cds_tprim_fastsem_t *sem);
+    void cds_tprim_fusem_post(cds_tprim_fusem_t *sem);
 
     /** @brief Functionally equivalent to calling sem_post() n
      *         times. This variant may be more efficient if the
@@ -133,7 +134,7 @@ extern "C"
      *         awakened with a single kernel call.
      */
     CDS_TPRIM_DEF
-    void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, cds_tprim_s32 n);
+    void cds_tprim_fusem_postn(cds_tprim_fusem_t *sem, cds_tprim_s32 n);
 
     /** @brief Retrieves the current value of the semaphore's internal
      *         counter, for debugging purposes. If the counter is
@@ -141,10 +142,12 @@ extern "C"
      *         resources that have been posted. If it's negative, it
      *         is the (negated) number of threads waiting for a
      *         resource to be posted.
-     *  @return The current value of the semaphore's internal counter.
+     *  @return The current value of the semaphore's internal counter. NOTE:
+     *          Note that, by design, the value returned may be incorrect
+     *          before the calling code even sees it.
      */
     CDS_TPRIM_DEF
-    cds_tprim_s32 cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem);
+    cds_tprim_s32 cds_tprim_fusem_getvalue(cds_tprim_fusem_t *sem);
 
     /**
      * cds_tprim_futex_t -- a mutex guaranteed to stay in user-mode unless
@@ -152,31 +155,31 @@ extern "C"
      */
     typedef struct
     {
-        cds_tprim_fastsem_t sem;
+        cds_tprim_fusem_t sem;
     } cds_tprim_futex_t;
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     int cds_tprim_futex_init(cds_tprim_futex_t *ftx)
     {
-        return cds_tprim_fastsem_init(&ftx->sem, 1);
+        return cds_tprim_fusem_init(&ftx->sem, 1);
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_futex_destroy(cds_tprim_futex_t *ftx)
     {
-        cds_tprim_fastsem_destroy(&ftx->sem);
+        cds_tprim_fusem_destroy(&ftx->sem);
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_futex_lock(cds_tprim_futex_t *ftx)
     {
-        cds_tprim_fastsem_wait(&ftx->sem);
+        cds_tprim_fusem_wait(&ftx->sem);
     }
     
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
     void cds_tprim_futex_unlock(cds_tprim_futex_t *ftx)
     {
-        cds_tprim_fastsem_post(&ftx->sem);
+        cds_tprim_fusem_post(&ftx->sem);
     }
 
     /**
@@ -330,7 +333,7 @@ extern "C"
     {
         cds_tprim_s32 state;
         cds_tprim_eventcount_t ec;
-        cds_tprim_fastsem_t sem;
+        cds_tprim_fusem_t sem;
     } cds_tprim_monsem_t;
 
     /** @brief Initialize a monitored semaphore to the specified value. */
@@ -375,7 +378,7 @@ extern "C"
     typedef struct
     {
         cds_tprim_s32 insideCount, threadCount;
-        cds_tprim_fastsem_t mutex, semIn, semOut;
+        cds_tprim_fusem_t mutex, semIn, semOut;
     } cds_tprim_barrier_t;
 
     /** @brief Initialize a barrier object for the provided number of
@@ -531,8 +534,8 @@ static CDS_TPRIM_INLINE int cds_tprim_atomic_compare_exchange_s32(cds_tprim_s32 
 }
 #endif
 
-/* cds_tprim_fastsem_t */
-int cds_tprim_fastsem_init(cds_tprim_fastsem_t *sem, cds_tprim_s32 n)
+/* cds_tprim_fusem_t */
+int cds_tprim_fusem_init(cds_tprim_fusem_t *sem, cds_tprim_s32 n)
 {
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     sem->count = n;
@@ -551,7 +554,7 @@ int cds_tprim_fastsem_init(cds_tprim_fastsem_t *sem, cds_tprim_s32 n)
 #endif
 }
 
-void cds_tprim_fastsem_destroy(cds_tprim_fastsem_t *sem)
+void cds_tprim_fusem_destroy(cds_tprim_fusem_t *sem)
 {
 #if defined(CDS_TPRIM_PLATFORM_WINDOWS)
     CloseHandle(sem->handle);
@@ -562,7 +565,7 @@ void cds_tprim_fastsem_destroy(cds_tprim_fastsem_t *sem)
 #endif
 }
 
-static CDS_TPRIM_INLINE int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
+static CDS_TPRIM_INLINE int cds_tprim_fusem_trywait(cds_tprim_fusem_t *sem)
 {
     cds_tprim_s32 count = cds_tprim_atomic_load_s32(&sem->count, CDS_TPRIM_ATOMIC_ACQUIRE);
     while(count > 0)
@@ -577,7 +580,7 @@ static CDS_TPRIM_INLINE int cds_tprim_fastsem_trywait(cds_tprim_fastsem_t *sem)
     return 0;
 }
 
-static CDS_TPRIM_INLINE void cds_tprim_fastsem_wait_no_spin(cds_tprim_fastsem_t *sem)
+static CDS_TPRIM_INLINE void cds_tprim_fusem_wait_no_spin(cds_tprim_fusem_t *sem)
 {
     if (cds_tprim_atomic_fetch_add_s32(&sem->count, -1, CDS_TPRIM_ATOMIC_ACQ_REL) < 1)
     {
@@ -591,20 +594,20 @@ static CDS_TPRIM_INLINE void cds_tprim_fastsem_wait_no_spin(cds_tprim_fastsem_t 
     }
 }
 
-void cds_tprim_fastsem_wait(cds_tprim_fastsem_t *sem)
+void cds_tprim_fusem_wait(cds_tprim_fusem_t *sem)
 {
     int spin_count = 1;
     while(spin_count--)
     {
-        if (cds_tprim_fastsem_trywait(sem) )
+        if (cds_tprim_fusem_trywait(sem) )
         {
             return;
         }
     }
-    cds_tprim_fastsem_wait_no_spin(sem);
+    cds_tprim_fusem_wait_no_spin(sem);
 }
 
-void cds_tprim_fastsem_post(cds_tprim_fastsem_t *sem)
+void cds_tprim_fusem_post(cds_tprim_fusem_t *sem)
 {
     if (cds_tprim_atomic_fetch_add_s32(&sem->count, 1, CDS_TPRIM_ATOMIC_ACQ_REL) < 0)
     {
@@ -618,7 +621,7 @@ void cds_tprim_fastsem_post(cds_tprim_fastsem_t *sem)
     }
 }
 
-void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, cds_tprim_s32 n)
+void cds_tprim_fusem_postn(cds_tprim_fusem_t *sem, cds_tprim_s32 n)
 {
     cds_tprim_s32 oldCount = cds_tprim_atomic_fetch_add_s32(&sem->count, n, CDS_TPRIM_ATOMIC_ACQ_REL);
     if (oldCount < 0)
@@ -645,7 +648,7 @@ void cds_tprim_fastsem_postn(cds_tprim_fastsem_t *sem, cds_tprim_s32 n)
     }
 }
 
-cds_tprim_s32 cds_tprim_fastsem_getvalue(cds_tprim_fastsem_t *sem)
+cds_tprim_s32 cds_tprim_fusem_getvalue(cds_tprim_fusem_t *sem)
 {
     return cds_tprim_atomic_load_s32(&sem->count, CDS_TPRIM_ATOMIC_SEQ_CST);
 }
@@ -703,14 +706,14 @@ void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp)
 int cds_tprim_monsem_init(cds_tprim_monsem_t *ms, cds_tprim_s32 count)
 {
     assert(count >= 0);
-    cds_tprim_fastsem_init(&ms->sem, 0);
+    cds_tprim_fusem_init(&ms->sem, 0);
     cds_tprim_eventcount_init(&ms->ec);
     ms->state = count << CDS_TPRIM_MONSEM_COUNT_SHIFT;
     return 0;
 }
 void cds_tprim_monsem_destroy(cds_tprim_monsem_t *ms)
 {
-    cds_tprim_fastsem_destroy(&ms->sem);
+    cds_tprim_fusem_destroy(&ms->sem);
     cds_tprim_eventcount_destroy(&ms->ec);
 }
 
@@ -771,7 +774,7 @@ static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *m
             assert(waitFor >= 1);
             cds_tprim_eventcount_signal(&ms->ec);
         }
-        cds_tprim_fastsem_wait(&ms->sem);
+        cds_tprim_fusem_wait(&ms->sem);
     }
 }
 
@@ -842,7 +845,7 @@ void cds_tprim_monsem_post(cds_tprim_monsem_t *ms)
     assert(count < 0  || ( (unsigned int)count < (CDS_TPRIM_MONSEM_COUNT_MAX-2) ));
     if (count < 0)
     {
-        cds_tprim_fastsem_post(&ms->sem);
+        cds_tprim_fusem_post(&ms->sem);
     }
 }
 
@@ -863,41 +866,41 @@ int cds_tprim_barrier_init(cds_tprim_barrier_t *barrier, cds_tprim_s32 threadCou
     assert(threadCount > 0);
     barrier->insideCount = 0;
     barrier->threadCount = threadCount;
-    cds_tprim_fastsem_init(&barrier->mutex, 1);
-    cds_tprim_fastsem_init(&barrier->semIn, 0);
-    cds_tprim_fastsem_init(&barrier->semOut, 0);
+    cds_tprim_fusem_init(&barrier->mutex, 1);
+    cds_tprim_fusem_init(&barrier->semIn, 0);
+    cds_tprim_fusem_init(&barrier->semOut, 0);
     return 0;
 }
 
 void cds_tprim_barrier_destroy(cds_tprim_barrier_t *barrier)
 {
-    cds_tprim_fastsem_destroy(&barrier->mutex);
-    cds_tprim_fastsem_destroy(&barrier->semIn);
-    cds_tprim_fastsem_destroy(&barrier->semOut);
+    cds_tprim_fusem_destroy(&barrier->mutex);
+    cds_tprim_fusem_destroy(&barrier->semIn);
+    cds_tprim_fusem_destroy(&barrier->semOut);
 }
 
 void cds_tprim_barrier_enter(cds_tprim_barrier_t *barrier)
 {
-    cds_tprim_fastsem_wait(&barrier->mutex);
+    cds_tprim_fusem_wait(&barrier->mutex);
     barrier->insideCount += 1;
     if (barrier->insideCount == barrier->threadCount)
     {
-        cds_tprim_fastsem_postn(&barrier->semIn, barrier->threadCount);
+        cds_tprim_fusem_postn(&barrier->semIn, barrier->threadCount);
     }
-    cds_tprim_fastsem_post(&barrier->mutex);
-    cds_tprim_fastsem_wait(&barrier->semIn);
+    cds_tprim_fusem_post(&barrier->mutex);
+    cds_tprim_fusem_wait(&barrier->semIn);
 }
 
 void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier)
 {
-    cds_tprim_fastsem_wait(&barrier->mutex);
+    cds_tprim_fusem_wait(&barrier->mutex);
     barrier->insideCount -= 1;
     if (barrier->insideCount == 0)
     {
-        cds_tprim_fastsem_postn(&barrier->semOut, barrier->threadCount);
+        cds_tprim_fusem_postn(&barrier->semOut, barrier->threadCount);
     }
-    cds_tprim_fastsem_post(&barrier->mutex);
-    cds_tprim_fastsem_wait(&barrier->semOut);
+    cds_tprim_fusem_post(&barrier->mutex);
+    cds_tprim_fusem_wait(&barrier->semOut);
 }
 
 
@@ -939,7 +942,7 @@ typedef struct
         cds_tprim_s32 leaderId;
         cds_tprim_s32 followerId;
     } rounds[CDS_TEST_DANCER_NUM_ROUNDS];
-    cds_tprim_fastsem_t queueL, queueF, mutexL, mutexF, rendezvous;
+    cds_tprim_fusem_t queueL, queueF, mutexL, mutexF, rendezvous;
     cds_tprim_s32 roundIndex;
 } cds_test_dancer_args_t;
 static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testDancerLeader(void *voidArgs)
@@ -951,19 +954,19 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testDancerLeader(void 
     for(;;)
     {
         zero = 0;
-        cds_tprim_fastsem_wait(&args->mutexL);
-        cds_tprim_fastsem_post(&args->queueL);
-        cds_tprim_fastsem_wait(&args->queueF);
+        cds_tprim_fusem_wait(&args->mutexL);
+        cds_tprim_fusem_post(&args->queueL);
+        cds_tprim_fusem_wait(&args->queueF);
         /* critical section */
         if (args->roundIndex < CDS_TEST_DANCER_NUM_ROUNDS)
         {
             zero = cds_tprim_atomic_fetch_add_s32(&args->rounds[args->roundIndex].leaderId, threadId,
                 CDS_TPRIM_ATOMIC_SEQ_CST);
         }
-        cds_tprim_fastsem_wait(&args->rendezvous);
+        cds_tprim_fusem_wait(&args->rendezvous);
         lastRoundIndex = cds_tprim_atomic_fetch_add_s32(&args->roundIndex, 1, CDS_TPRIM_ATOMIC_SEQ_CST);
         /* end critical section */
-        cds_tprim_fastsem_post(&args->mutexL);
+        cds_tprim_fusem_post(&args->mutexL);
         if (0 != zero)
         {
             printf("ERROR: double-write to rounds[%d].leaderId (expected 0, found %d)\n",
@@ -987,9 +990,9 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testDancerFollower(voi
     for(;;)
     {
         zero = 0;
-        cds_tprim_fastsem_wait(&args->mutexF);
-        cds_tprim_fastsem_post(&args->queueF);
-        cds_tprim_fastsem_wait(&args->queueL);
+        cds_tprim_fusem_wait(&args->mutexF);
+        cds_tprim_fusem_post(&args->queueF);
+        cds_tprim_fusem_wait(&args->queueL);
         /* critical section */
         lastRoundIndex = cds_tprim_atomic_load_s32(&args->roundIndex, CDS_TPRIM_ATOMIC_SEQ_CST);
         if (args->roundIndex < CDS_TEST_DANCER_NUM_ROUNDS)
@@ -997,9 +1000,9 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testDancerFollower(voi
             zero = cds_tprim_atomic_fetch_add_s32(&args->rounds[args->roundIndex].followerId, threadId,
                 CDS_TPRIM_ATOMIC_SEQ_CST);
         }
-        cds_tprim_fastsem_post(&args->rendezvous);
+        cds_tprim_fusem_post(&args->rendezvous);
         /* end critical section */
-        cds_tprim_fastsem_post(&args->mutexF);
+        cds_tprim_fusem_post(&args->mutexF);
         if (0 != zero)
         {
             printf("ERROR: double-write to rounds[%d].followererId (expected 0, found %d)\n",
@@ -1028,11 +1031,11 @@ static void testDancers(void)
     
     dancerArgs.roundIndex = 0;
     memset(dancerArgs.rounds, 0, sizeof(dancerArgs.rounds));
-    cds_tprim_fastsem_init(&dancerArgs.queueL, 0);
-    cds_tprim_fastsem_init(&dancerArgs.queueF, 0);
-    cds_tprim_fastsem_init(&dancerArgs.mutexL, 1);
-    cds_tprim_fastsem_init(&dancerArgs.mutexF, 1);
-    cds_tprim_fastsem_init(&dancerArgs.rendezvous, 0);
+    cds_tprim_fusem_init(&dancerArgs.queueL, 0);
+    cds_tprim_fusem_init(&dancerArgs.queueF, 0);
+    cds_tprim_fusem_init(&dancerArgs.mutexL, 1);
+    cds_tprim_fusem_init(&dancerArgs.mutexF, 1);
+    cds_tprim_fusem_init(&dancerArgs.rendezvous, 0);
     
     leaderThreads = (cds_tprim_thread_t*)malloc(kNumLeaders*sizeof(cds_tprim_thread_t));
     for(iLeader=0; iLeader<kNumLeaders; ++iLeader)
@@ -1067,11 +1070,11 @@ static void testDancers(void)
         }
     }
 
-    cds_tprim_fastsem_destroy(&dancerArgs.queueL);
-    cds_tprim_fastsem_destroy(&dancerArgs.queueF);
-    cds_tprim_fastsem_destroy(&dancerArgs.mutexL);
-    cds_tprim_fastsem_destroy(&dancerArgs.mutexF);
-    cds_tprim_fastsem_destroy(&dancerArgs.rendezvous);
+    cds_tprim_fusem_destroy(&dancerArgs.queueL);
+    cds_tprim_fusem_destroy(&dancerArgs.queueF);
+    cds_tprim_fusem_destroy(&dancerArgs.mutexL);
+    cds_tprim_fusem_destroy(&dancerArgs.mutexF);
+    cds_tprim_fusem_destroy(&dancerArgs.rendezvous);
     free(leaderThreads);
     free(followerThreads);
 }
