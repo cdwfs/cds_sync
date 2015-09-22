@@ -108,13 +108,36 @@ extern "C"
     /* no stdint.h in VS2010 and earlier.
      * LONG and DWORD are guaranteed to be 32 bits forever, though.
      */
+    typedef INT8  cds_tprim_s8;
+    typedef BYTE  cds_tprim_u8;
     typedef LONG  cds_tprim_s32;
     typedef DWORD cds_tprim_u32;
 #else
 #   include <stdint.h>
-    typedef int32_t  cds_tprim_s32;
+    typedef  int8_t  cds_tprim_s8;
+    typedef uint8_t  cds_tprim_u8;
+    typedef  int32_t cds_tprim_s32;
     typedef uint32_t cds_tprim_u32;
 #endif
+
+#if defined(CDS_TPRIM_COMPILER_MSVC)
+#   define CDS_TPRIM_ALIGN(n) __declspec(align(n))
+#elif defined(CDS_TPRIM_COMPILER_CLANG) || defined(CDS_TPRIM_COMPILER_GCC)
+#   define CDS_TPRIM_ALIGN(n) __attribute__((__aligned__(n)))
+#else
+#   error Unsupporter compiler
+#endif
+#define CDS_TPRIM_L1_CACHE_LINE_SIZE 64
+#define CDS_TPRIM_CACHE_ALIGNED CDS_TPRIM_ALIGN(CDS_TPRIM_L1_CACHE_LINE_SIZE)
+    /**
+     * cds_tprim_atomic_s32 -- a 32-bit integer in a cache line all by itself, so
+     * that atomic operations don't cause false sharing.
+     */
+    typedef struct
+    {
+        CDS_TPRIM_CACHE_ALIGNED cds_tprim_s32 n;
+        cds_tprim_u8 padding[CDS_TPRIM_L1_CACHE_LINE_SIZE-sizeof(cds_tprim_s32)];
+    } cds_tprim_atomic_s32;
 
     /**
      * cds_tprim_fusem_t -- a "fast userspace" semaphore, guaranteed
@@ -123,6 +146,7 @@ extern "C"
      */
     typedef struct
     {
+        cds_tprim_atomic_s32 count;
 #if   defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
         HANDLE handle;
 #elif defined(CDS_TPRIM_HAS_GCD_SEMAPHORES)
@@ -132,7 +156,6 @@ extern "C"
 #else
 #   error Unsupported compiler/platform
 #endif
-        cds_tprim_s32 count;
     } cds_tprim_fusem_t;
 
     /** @brief Initialize a semaphore to the specified value. */
@@ -333,8 +356,8 @@ extern "C"
      */
     typedef struct
     {
+        cds_tprim_atomic_s32 count;
         cds_tprim_condvar_t cv;
-        cds_tprim_s32 count;
     } cds_tprim_eventcount_t;
 
     /** @brief Initialize an eventcount object. */
@@ -378,7 +401,7 @@ extern "C"
      */
     typedef struct
     {
-        cds_tprim_s32 state;
+        cds_tprim_atomic_s32 state;
         cds_tprim_eventcount_t ec;
         cds_tprim_fusem_t sem;
     } cds_tprim_monsem_t;
@@ -424,8 +447,8 @@ extern "C"
      */
     typedef struct
     {
-        cds_tprim_s32 insideCount, threadCount;
         cds_tprim_fusem_t mutex, semIn, semOut;
+        cds_tprim_s32 insideCount, threadCount;
     } cds_tprim_barrier_t;
 
     /** @brief Initialize a barrier object for the provided number of
@@ -592,18 +615,18 @@ static CDS_TPRIM_INLINE int cds_tprim_atomic_compare_exchange_s32(cds_tprim_s32 
 int cds_tprim_fusem_init(cds_tprim_fusem_t *sem, cds_tprim_s32 n)
 {
 #if   defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
-    sem->count = n;
+    sem->count.n = n;
     sem->handle = CreateSemaphore(NULL, 0, LONG_MAX, NULL);
     if (sem->handle == NULL)
         return GetLastError();
     return 0;
 #elif defined(CDS_TPRIM_HAS_GCD_SEMAPHORES)
     sem->sem = dispatch_semaphore_create(0);
-    sem->count = n;
+    sem->count.n = n;
     return (sem->sem != NULL) ? 0 : -1;
 #elif defined(CDS_TPRIM_HAS_POSIX_SEMAPHORES)
     int err = sem_init(&sem->sem, 0, 0);
-    sem->count = n;
+    sem->count.n = n;
     return err;
 #else
 #   error Unsupported compiler/platform
@@ -625,10 +648,10 @@ void cds_tprim_fusem_destroy(cds_tprim_fusem_t *sem)
 
 static CDS_TPRIM_INLINE int cds_tprim_fusem_trywait(cds_tprim_fusem_t *sem)
 {
-    cds_tprim_s32 count = cds_tprim_atomic_load_s32(&sem->count, CDS_TPRIM_ATOMIC_ACQUIRE);
+    cds_tprim_s32 count = cds_tprim_atomic_load_s32(&sem->count.n, CDS_TPRIM_ATOMIC_ACQUIRE);
     while(count > 0)
     {
-        if (cds_tprim_atomic_compare_exchange_s32(&sem->count, &count, count-1,
+        if (cds_tprim_atomic_compare_exchange_s32(&sem->count.n, &count, count-1,
                 1, CDS_TPRIM_ATOMIC_ACQ_REL, CDS_TPRIM_ATOMIC_RELAXED))
         {
             return 1;
@@ -640,7 +663,7 @@ static CDS_TPRIM_INLINE int cds_tprim_fusem_trywait(cds_tprim_fusem_t *sem)
 
 static CDS_TPRIM_INLINE void cds_tprim_fusem_wait_no_spin(cds_tprim_fusem_t *sem)
 {
-    if (cds_tprim_atomic_fetch_add_s32(&sem->count, -1, CDS_TPRIM_ATOMIC_ACQ_REL) < 1)
+    if (cds_tprim_atomic_fetch_add_s32(&sem->count.n, -1, CDS_TPRIM_ATOMIC_ACQ_REL) < 1)
     {
 #if defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
         WaitForSingleObject(sem->handle, INFINITE);
@@ -669,7 +692,7 @@ void cds_tprim_fusem_wait(cds_tprim_fusem_t *sem)
 
 void cds_tprim_fusem_post(cds_tprim_fusem_t *sem)
 {
-    if (cds_tprim_atomic_fetch_add_s32(&sem->count, 1, CDS_TPRIM_ATOMIC_ACQ_REL) < 0)
+    if (cds_tprim_atomic_fetch_add_s32(&sem->count.n, 1, CDS_TPRIM_ATOMIC_ACQ_REL) < 0)
     {
 #if defined(CDS_TPRIM_HAS_WINDOWS_SEMAPHORES)
         ReleaseSemaphore(sem->handle, 1, 0);
@@ -685,7 +708,7 @@ void cds_tprim_fusem_post(cds_tprim_fusem_t *sem)
 
 void cds_tprim_fusem_postn(cds_tprim_fusem_t *sem, cds_tprim_s32 n)
 {
-    cds_tprim_s32 oldCount = cds_tprim_atomic_fetch_add_s32(&sem->count, n, CDS_TPRIM_ATOMIC_ACQ_REL);
+    cds_tprim_s32 oldCount = cds_tprim_atomic_fetch_add_s32(&sem->count.n, n, CDS_TPRIM_ATOMIC_ACQ_REL);
     if (oldCount < 0)
     {
         cds_tprim_s32 numWaiters = -oldCount;
@@ -714,7 +737,7 @@ void cds_tprim_fusem_postn(cds_tprim_fusem_t *sem, cds_tprim_s32 n)
 
 cds_tprim_s32 cds_tprim_fusem_getvalue(cds_tprim_fusem_t *sem)
 {
-    return cds_tprim_atomic_load_s32(&sem->count, CDS_TPRIM_ATOMIC_SEQ_CST);
+    return cds_tprim_atomic_load_s32(&sem->count.n, CDS_TPRIM_ATOMIC_SEQ_CST);
 }
 
 
@@ -722,7 +745,7 @@ cds_tprim_s32 cds_tprim_fusem_getvalue(cds_tprim_fusem_t *sem)
 int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 {
     cds_tprim_condvar_init(&ec->cv);
-    cds_tprim_atomic_store_s32(&ec->count, 0, CDS_TPRIM_ATOMIC_RELAXED);
+    cds_tprim_atomic_store_s32(&ec->count.n, 0, CDS_TPRIM_ATOMIC_RELAXED);
     return 0;
 }
 void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec)
@@ -731,15 +754,15 @@ void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec)
 }
 cds_tprim_s32 cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
 {
-    return cds_tprim_atomic_fetch_or_s32(&ec->count, 1, CDS_TPRIM_ATOMIC_ACQUIRE);
+    return cds_tprim_atomic_fetch_or_s32(&ec->count.n, 1, CDS_TPRIM_ATOMIC_ACQUIRE);
 }
 void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
 {
-    cds_tprim_s32 key = cds_tprim_atomic_fetch_add_s32(&ec->count, 0, CDS_TPRIM_ATOMIC_SEQ_CST);
+    cds_tprim_s32 key = cds_tprim_atomic_fetch_add_s32(&ec->count.n, 0, CDS_TPRIM_ATOMIC_SEQ_CST);
     if (key & 1)
     {
         cds_tprim_condvar_lock(&ec->cv);
-        while (!cds_tprim_atomic_compare_exchange_s32(&ec->count, &key, (key+2) & ~1,
+        while (!cds_tprim_atomic_compare_exchange_s32(&ec->count.n, &key, (key+2) & ~1,
                 1, CDS_TPRIM_ATOMIC_SEQ_CST, CDS_TPRIM_ATOMIC_SEQ_CST))
         {
             /* spin */
@@ -751,7 +774,7 @@ void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
 void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp)
 {
     cds_tprim_condvar_lock(&ec->cv);
-    if ((cds_tprim_atomic_load_s32(&ec->count, CDS_TPRIM_ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
+    if ((cds_tprim_atomic_load_s32(&ec->count.n, CDS_TPRIM_ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
     {
         cds_tprim_condvar_unlock_and_wait(&ec->cv);
     }
@@ -772,7 +795,7 @@ int cds_tprim_monsem_init(cds_tprim_monsem_t *ms, cds_tprim_s32 count)
     assert(count >= 0);
     cds_tprim_fusem_init(&ms->sem, 0);
     cds_tprim_eventcount_init(&ms->ec);
-    ms->state = count << CDS_TPRIM_MONSEM_COUNT_SHIFT;
+    ms->state.n = count << CDS_TPRIM_MONSEM_COUNT_SHIFT;
     return 0;
 }
 void cds_tprim_monsem_destroy(cds_tprim_monsem_t *ms)
@@ -785,7 +808,7 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, cds_tprim_s32 wai
 {
     cds_tprim_s32 state;
     assert( waitForCount > 0 && waitForCount < CDS_TPRIM_MONSEM_WAIT_FOR_MAX );
-    state = cds_tprim_atomic_load_s32(&ms->state, CDS_TPRIM_ATOMIC_ACQUIRE);
+    state = cds_tprim_atomic_load_s32(&ms->state.n, CDS_TPRIM_ATOMIC_ACQUIRE);
     for(;;)
     {
         cds_tprim_s32 newState, ec;
@@ -797,13 +820,13 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, cds_tprim_s32 wai
         newState = (curCount     << CDS_TPRIM_MONSEM_COUNT_SHIFT)
             | (waitForCount << CDS_TPRIM_MONSEM_WAIT_FOR_SHIFT);
         ec = cds_tprim_eventcount_get(&ms->ec);
-        if (!cds_tprim_atomic_compare_exchange_s32(&ms->state, &state, newState,
+        if (!cds_tprim_atomic_compare_exchange_s32(&ms->state.n, &state, newState,
                 0, CDS_TPRIM_ATOMIC_ACQ_REL, CDS_TPRIM_ATOMIC_ACQUIRE))
         {
             continue; /* retry; state was reloaded */
         }
         cds_tprim_eventcount_wait(&ms->ec, ec);
-        state = cds_tprim_atomic_load_s32(&ms->state, CDS_TPRIM_ATOMIC_ACQUIRE);
+        state = cds_tprim_atomic_load_s32(&ms->state.n, CDS_TPRIM_ATOMIC_ACQUIRE);
     }
     for(;;)
     {
@@ -812,7 +835,7 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, cds_tprim_s32 wai
         {
             return; /* nothing to do */
         }
-        if (cds_tprim_atomic_compare_exchange_s32(&ms->state, &state, newState,
+        if (cds_tprim_atomic_compare_exchange_s32(&ms->state.n, &state, newState,
                 0, CDS_TPRIM_ATOMIC_ACQ_REL, CDS_TPRIM_ATOMIC_ACQUIRE))
         {
             return; /* updated successfully */
@@ -824,7 +847,7 @@ void cds_tprim_monsem_wait_for_waiters(cds_tprim_monsem_t *ms, cds_tprim_s32 wai
 static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *ms)
 {
     /* cds_tprim_s32 prevState = ((count-1)<<COUNT_SHIFT) | (state & WAIT_FOR_MASK); */
-    cds_tprim_s32 prevState = cds_tprim_atomic_fetch_add_s32(&ms->state, (-1)<<CDS_TPRIM_MONSEM_COUNT_SHIFT,
+    cds_tprim_s32 prevState = cds_tprim_atomic_fetch_add_s32(&ms->state.n, (-1)<<CDS_TPRIM_MONSEM_COUNT_SHIFT,
         CDS_TPRIM_ATOMIC_ACQ_REL);
 
     cds_tprim_s32 prevCount = prevState >> CDS_TPRIM_MONSEM_COUNT_SHIFT; /* arithmetic shift is intentional */
@@ -845,7 +868,7 @@ static CDS_TPRIM_INLINE void cds_tprim_monsem_wait_no_spin(cds_tprim_monsem_t *m
 static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
 {
     /* See if we can decrement the count before preparing the wait. */
-    cds_tprim_s32 state = cds_tprim_atomic_load_s32(&ms->state, CDS_TPRIM_ATOMIC_ACQUIRE);
+    cds_tprim_s32 state = cds_tprim_atomic_load_s32(&ms->state.n, CDS_TPRIM_ATOMIC_ACQUIRE);
     for(;;)
     {
         cds_tprim_s32 newState;
@@ -856,7 +879,7 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
         /* newState = ((count-1)<<COUNT_SHIFT) | (state & WAIT_FOR_MASK); */
         newState = state - (1<<CDS_TPRIM_MONSEM_COUNT_SHIFT);
         assert( (newState >> CDS_TPRIM_MONSEM_COUNT_SHIFT) >= 0 );
-        if (cds_tprim_atomic_compare_exchange_s32(&ms->state, &state, newState,
+        if (cds_tprim_atomic_compare_exchange_s32(&ms->state.n, &state, newState,
                 0, CDS_TPRIM_ATOMIC_ACQ_REL, CDS_TPRIM_ATOMIC_ACQUIRE))
         {
             return 1;
@@ -905,7 +928,7 @@ void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms)
 void cds_tprim_monsem_post(cds_tprim_monsem_t *ms)
 {
     const cds_tprim_s32 inc = 1;
-    cds_tprim_s32 prev = cds_tprim_atomic_fetch_add_s32(&ms->state, inc<<CDS_TPRIM_MONSEM_COUNT_SHIFT,
+    cds_tprim_s32 prev = cds_tprim_atomic_fetch_add_s32(&ms->state.n, inc<<CDS_TPRIM_MONSEM_COUNT_SHIFT,
         CDS_TPRIM_ATOMIC_ACQ_REL);
     cds_tprim_s32 count = (prev >> CDS_TPRIM_MONSEM_COUNT_SHIFT);
     assert(count < 0  || ( (unsigned int)count < (CDS_TPRIM_MONSEM_COUNT_MAX-2) ));
@@ -1296,8 +1319,55 @@ static void testEventcount(void)
 #endif
 }
 
+#if   defined(CDS_TPRIM_PLATFORM_WINDOWS)
+static cds_tprim_s32 cds_tprim_cache_line_size(void)
+{
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION *procInfos = NULL;
+    DWORD procInfoBufferSize = 0;
+    size_t cacheLineSizeL1 = 0;
+    int iProc=0;
+    GetLogicalProcessorInformation(0, &procInfoBufferSize);
+    procInfos = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION*)malloc(procInfoBufferSize);
+    GetLogicalProcessorInformation(&procInfos[0], &procInfoBufferSize);
+    for(iProc=0; iProc<procInfoBufferSize/sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION); ++iProc)
+    {
+        if (procInfos[iProc].Relationship == RelationCache &&
+            procInfos[iProc].Cache.Level == 1)
+        {
+            cacheLineSizeL1 = procInfos[iProc].Cache.LineSize;
+            break;
+        }
+    }
+    assert(cacheLineSize > 0);
+    free(procInfos);
+    return (cds_tprim_s32)cacheLineSizeL1;
+}
+#elif defined(CDS_TPRIM_PLATFORM_OSX)
+static cds_tprim_s32 cds_tprim_cache_line_size(void)
+{
+    size_t cacheLineSizeL1 = 0;
+    size_t sizeofLineSize = sizeof(cacheLineSizeL1);
+    sysctlbyname("hw.cachelinesize", &cacheLineSizeL1, &sizeofLineSize, 0, 0);
+    return (cds_tprim_s32)cacheLineSizeL1;
+}
+#elif defined(CDS_TPRIM_PLATFORM_POSIX)
+#   include <sys/sysctl.h>
+static cds_tprim_s32 cds_tprim_cache_line_size(void)
+{
+    return (cds_tprim_s32)sysconf(_SC_LEVEL1_DCACHE_LINESIZE);
+}
+#endif
+
 int main(int argc, char *argv[])
 {
+    cds_tprim_s32 cacheLineSizeL1 = cds_tprim_cache_line_size();
+    printf("L1 line size: %d\n", (int)cacheLineSizeL1);
+    if (CDS_TPRIM_L1_CACHE_LINE_SIZE < cacheLineSizeL1)
+    {
+        printf("WARNING: L1 cache size on this system is %d bytes;\nCDS_TPRIM_L1_CACHE_LINE_SIZE should be edited to match!\n",
+            (int)cacheLineSizeL1);
+    }
+
     int seed = time(NULL);
     printf("random seed: 0x%08X\n", seed);
     srand(seed);
