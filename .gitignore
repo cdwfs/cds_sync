@@ -9,3 +9,5 @@ GSYMS
 *.ilk
 *.pdb
 *.suo
+
+*.dSYM
