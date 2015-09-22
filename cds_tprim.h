@@ -1338,7 +1338,7 @@ static cds_tprim_s32 cds_tprim_cache_line_size(void)
             break;
         }
     }
-    assert(cacheLineSize > 0);
+    assert(cacheLineSizeL1 > 0);
     free(procInfos);
     return (cds_tprim_s32)cacheLineSizeL1;
 }
