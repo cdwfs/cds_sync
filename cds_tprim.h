@@ -48,10 +48,20 @@ extern "C"
 #       define CDS_TPRIM_HAS_POSIX_THREADS
 #       define CDS_TPRIM_HAS_SCHED_YIELD
 #   else
-#       error Unsupported compiler/platform (non-POSIX unix)
+#       error Unsupported platform (non-POSIX unix)
 #   endif
 #else
-#   error Unsupported compiler/platform
+#   error Unsupported platform
+#endif
+
+#if defined(_MSC_VER)
+#   define CDS_TPRIM_COMPILER_MSVC
+#elif defined(__clang__)
+#   define CDS_TPRIM_COMPILER_CLANG
+#elif defined(__GNUC__)
+#   define CDS_TPRIM_COMPILER_GCC
+#else
+#   error Unsupported compiler
 #endif
 
 #if defined(CDS_TPRIM_STATIC)
