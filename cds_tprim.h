@@ -1343,6 +1343,8 @@ static cds_tprim_s32 cds_tprim_cache_line_size(void)
     return (cds_tprim_s32)cacheLineSizeL1;
 }
 #elif defined(CDS_TPRIM_PLATFORM_OSX)
+#   include <sys/types.h>
+#   include <sys/sysctl.h>
 static cds_tprim_s32 cds_tprim_cache_line_size(void)
 {
     size_t cacheLineSizeL1 = 0;
