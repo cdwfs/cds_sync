@@ -46,7 +46,7 @@ extern "C"
 #       define CDS_TPRIM_HAS_POSIX_CONDVARS
 #       define CDS_TPRIM_HAS_GCC_ATOMICS
 #       define CDS_TPRIM_HAS_POSIX_THREADS
-#       define CDS_TPRIM_HAS_PTHREAD_YIELD
+#       define CDS_TPRIM_HAS_SCHED_YIELD
 #   else
 #       error Unsupported compiler/platform (non-POSIX unix)
 #   endif
@@ -986,8 +986,9 @@ static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)pthread_self
 
 #if defined(CDS_TPRIM_HAS_WINDOWS_YIELD)
 static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { YieldProcessor(); }
-#elif defined(CDS_TPRIM_HAS_PTHREAD_YIELD)
-static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { pthread_yield(); }
+#elif defined(CDS_TPRIM_HAS_SCHED_YIELD)
+#    include <sched.h>
+static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { sched_yield(); }
 #elif defined(CDS_TPRIM_HAS_PTHREAD_YIELD_NP)
 static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { pthread_yield_np(); }
 #else
