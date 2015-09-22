@@ -855,6 +855,7 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait(cds_tprim_monsem_t *ms)
     }
 }
 
+#if 0
 static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms)
 {
     cds_tprim_s32 state = cds_tprim_atomic_load_s32(&ms->state, CDS_TPRIM_ATOMIC_ACQUIRE);
@@ -876,6 +877,7 @@ static CDS_TPRIM_INLINE int cds_tprim_monsem_try_wait_all(cds_tprim_monsem_t *ms
         /* state was reloaded; try again, with optional backoff. */
     }
 }
+#endif
 
 void cds_tprim_monsem_wait(cds_tprim_monsem_t *ms)
 {
