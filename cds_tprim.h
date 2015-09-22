@@ -30,12 +30,14 @@ extern "C"
 #   define CDS_TPRIM_HAS_WINDOWS_CONDVARS
 #   define CDS_TPRIM_HAS_WINDOWS_ATOMICS
 #   define CDS_TPRIM_HAS_WINDOWS_THREADS
+#   define CDS_TPRIM_HAS_WINDOWS_YIELD
 #elif defined(__APPLE__) && defined(__MACH__)
 #   define CDS_TPRIM_PLATFORM_OSX
 #   define CDS_TPRIM_HAS_GCD_SEMAPHORES
 #   define CDS_TPRIM_HAS_POSIX_CONDVARS
 #   define CDS_TPRIM_HAS_GCC_ATOMICS
 #   define CDS_TPRIM_HAS_POSIX_THREADS
+#   define CDS_TPRIM_HAS_PTHREAD_YIELD_NP
 #elif defined(unix) || defined(__unix__) || defined(__unix)
 #   include <unistd.h>
 #   if defined(_POSIX_THREADS) && defined(_POSIX_SEMAPHORES)
@@ -44,6 +46,7 @@ extern "C"
 #       define CDS_TPRIM_HAS_POSIX_CONDVARS
 #       define CDS_TPRIM_HAS_GCC_ATOMICS
 #       define CDS_TPRIM_HAS_POSIX_THREADS
+#       define CDS_TPRIM_HAS_PTHREAD_YIELD
 #   else
 #       error Unsupported compiler/platform (non-POSIX unix)
 #   endif
@@ -972,7 +975,6 @@ typedef DWORD cds_tprim_threadproc_return_t;
 static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, LPTHREAD_START_ROUTINE startProc, void *args) { *pThread = CreateThread(NULL,0,startProc,args,0,NULL); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { WaitForSingleObject(thread, INFINITE); CloseHandle(thread); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)GetCurrentThreadId(); }
-static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { YieldProcessor(); }
 #elif defined(CDS_TPRIM_HAS_POSIX_THREADS)
 typedef pthread_t cds_tprim_thread_t;
 typedef void* cds_tprim_threadproc_return_t;
@@ -980,7 +982,16 @@ typedef void* cds_tprim_threadproc_return_t;
 static CDS_TPRIM_INLINE void cds_tprim_thread_create(cds_tprim_thread_t *pThread, void *(*startProc)(void*), void *args) { pthread_create(pThread,NULL,startProc,args); }
 static CDS_TPRIM_INLINE void cds_tprim_thread_join(cds_tprim_thread_t thread) { pthread_join(thread, NULL); }
 static CDS_TPRIM_INLINE int cds_tprim_thread_id(void) { return (int)pthread_self(); }
+#endif
+
+#if defined(CDS_TPRIM_HAS_WINDOWS_YIELD)
+static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { YieldProcessor(); }
+#elif defined(CDS_TPRIM_HAS_PTHREAD_YIELD)
 static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { pthread_yield(); }
+#elif defined(CDS_TPRIM_HAS_PTHREAD_YIELD_NP)
+static CDS_TPRIM_INLINE void cds_tprim_thread_yield(void) { pthread_yield_np(); }
+#else
+#   error Unsupported compiler/platform
 #endif
 
 static cds_tprim_s32 g_errorCount = 0;
