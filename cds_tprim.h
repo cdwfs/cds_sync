@@ -1166,7 +1166,6 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testQueuePopper(void *
     {
         cds_tprim_s32 count = 0;
         int gotOne = 0;
-        cds_tprim_s32 ri, wi;
         cds_tprim_futex_lock(&args->mtx);
         if (args->readIndex < args->writeIndex)
         {
