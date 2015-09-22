@@ -534,15 +534,15 @@ static CDS_TPRIM_INLINE cds_tprim_s32 cds_tprim_atomic_fetch_add_s32(cds_tprim_s
     switch(memorder)
     {
     case CDS_TPRIM_ATOMIC_RELAXED:
-        return InterlockedExchangeAddNoFence(ptr, val);
+        return InterlockedExchangeAddNoFence((volatile LONG*)ptr, val);
     case CDS_TPRIM_ATOMIC_ACQUIRE:
-        return InterlockedExchangeAddAcquire(ptr, val);
+        return InterlockedExchangeAddAcquire((volatile LONG*)ptr, val);
     case CDS_TPRIM_ATOMIC_ACQ_REL:
     case CDS_TPRIM_ATOMIC_SEQ_CST:
-        return InterlockedExchangeAdd(ptr, val);
+        return InterlockedExchangeAdd((volatile LONG*)ptr, val);
     default:
         assert(0); /* unsupported memory order */
-        return InterlockedExchangeAdd(ptr, val);
+        return InterlockedExchangeAdd((volatile LONG*)ptr, val);
     }
 }
 static CDS_TPRIM_INLINE cds_tprim_s32 cds_tprim_atomic_fetch_or_s32(cds_tprim_s32 *ptr, cds_tprim_s32 val, int memorder)
@@ -550,15 +550,15 @@ static CDS_TPRIM_INLINE cds_tprim_s32 cds_tprim_atomic_fetch_or_s32(cds_tprim_s3
     switch(memorder)
     {
     case CDS_TPRIM_ATOMIC_RELAXED:
-        return InterlockedOrNoFence(ptr, val);
+        return InterlockedOrNoFence((volatile LONG*)ptr, val);
     case CDS_TPRIM_ATOMIC_ACQUIRE:
-        return InterlockedOrAcquire(ptr, val);
+        return InterlockedOrAcquire((volatile LONG*)ptr, val);
     case CDS_TPRIM_ATOMIC_ACQ_REL:
     case CDS_TPRIM_ATOMIC_SEQ_CST:
-        return InterlockedOr(ptr, val);
+        return InterlockedOr((volatile LONG*)ptr, val);
     default:
         assert(0); /* unsupported memory order */
-        return InterlockedOr(ptr, val);
+        return InterlockedOr((volatile LONG*)ptr, val);
     }
 }
 static CDS_TPRIM_INLINE int cds_tprim_atomic_compare_exchange_s32(cds_tprim_s32 *ptr, cds_tprim_s32 *expected, cds_tprim_s32 desired,
@@ -573,18 +573,18 @@ static CDS_TPRIM_INLINE int cds_tprim_atomic_compare_exchange_s32(cds_tprim_s32 
     switch(success_memorder)
     {
     case CDS_TPRIM_ATOMIC_RELAXED:
-        original = InterlockedCompareExchangeNoFence(ptr, desired, exp);
+        original = InterlockedCompareExchangeNoFence((volatile LONG*)ptr, desired, exp);
         break;
     case CDS_TPRIM_ATOMIC_ACQUIRE:
-        original = InterlockedCompareExchangeAcquire(ptr, desired, exp);
+        original = InterlockedCompareExchangeAcquire((volatile LONG*)ptr, desired, exp);
         break;
     case CDS_TPRIM_ATOMIC_ACQ_REL:
     case CDS_TPRIM_ATOMIC_SEQ_CST:
-        original = InterlockedCompareExchange(ptr, desired, exp);
+        original = InterlockedCompareExchange((volatile LONG*)ptr, desired, exp);
         break;
     default:
         assert(0); /* unsupported memory order */
-        original = InterlockedCompareExchange(ptr, desired, exp);
+        original = InterlockedCompareExchange((volatile LONG*)ptr, desired, exp);
         break;
     }
     success = (original == exp) ? 1 : 0;
@@ -1001,6 +1001,7 @@ void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier)
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* Minimal thread management wrappers */
 #if defined(CDS_TPRIM_HAS_WINDOWS_THREADS)
@@ -1325,7 +1326,7 @@ static cds_tprim_s32 cds_tprim_cache_line_size(void)
     SYSTEM_LOGICAL_PROCESSOR_INFORMATION *procInfos = NULL;
     DWORD procInfoBufferSize = 0;
     size_t cacheLineSizeL1 = 0;
-    int iProc=0;
+    unsigned int iProc=0;
     GetLogicalProcessorInformation(0, &procInfoBufferSize);
     procInfos = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION*)malloc(procInfoBufferSize);
     GetLogicalProcessorInformation(&procInfos[0], &procInfoBufferSize);
@@ -1362,6 +1363,8 @@ static cds_tprim_s32 cds_tprim_cache_line_size(void)
 
 int main(int argc, char *argv[])
 {
+    CDS_TPRIM_UNUSED(argc);
+    CDS_TPRIM_UNUSED(argv);
     cds_tprim_s32 cacheLineSizeL1 = cds_tprim_cache_line_size();
     printf("L1 line size: %d\n", (int)cacheLineSizeL1);
     if (CDS_TPRIM_L1_CACHE_LINE_SIZE < cacheLineSizeL1)
@@ -1370,7 +1373,7 @@ int main(int argc, char *argv[])
             (int)cacheLineSizeL1);
     }
 
-    int seed = time(NULL);
+    unsigned int seed = (unsigned int)time(NULL);
     printf("random seed: 0x%08X\n", seed);
     srand(seed);
 
