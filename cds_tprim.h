@@ -5,15 +5,15 @@
  * implementations.
  *
  * For a unit test on gcc/Clang:
- *   cc -pthread -std=c89 -g -x c -DCDS_TPRIM_TEST -o test_tprim.exe cds_tprim.h
+ *   cc -Wall -pthread -std=c89 -g -x c -DCDS_TPRIM_TEST -o test_tprim.exe cds_tprim.h
  * Clang users may also pass -fsanitize=thread to enable Clang's
  * ThreadSanitizer feature.
  *
  * For a unit test on Visual C++:
  *   "%VS120COMNTOOLS%\..\..\VC\vcvarsall.bat"
- *   cl -nologo -TC -DCDS_TPRIM_TEST /Fe: test_tprim.exe cds_tprim.h
+ *   cl -W4 -nologo -TC -DCDS_TPRIM_TEST /Fe: test_tprim.exe cds_tprim.h
  * Debug-mode:
- *   cl -Od -Z7 -FC -MTd -nologo -TC -DCDS_TPRIM_TEST /Fe: test_tprim.exe cds_tprim.h
+ *   cl -W4 -Od -Z7 -FC -MTd -nologo -TC -DCDS_TPRIM_TEST /Fe: test_tprim.exe cds_tprim.h
  */
 
 #if !defined(CDS_TPRIM_H)
