@@ -485,17 +485,6 @@ extern "C"
     CDS_TPRIM_DEF
     void cds_tprim_barrier_exit(cds_tprim_barrier_t *barrier);
 
-    /** @brief Helper function to call barrier_enter() and
-     *         barrier_exit() in succession, if there's no code to run
-     *         in the critical section.
-     */
-    CDS_TPRIM_DEF CDS_TPRIM_INLINE
-    void cds_tprim_barrier_wait(cds_tprim_barrier_t *barrier)
-    {
-        cds_tprim_barrier_enter(barrier);
-        cds_tprim_barrier_exit(barrier);
-    }
-
 #ifdef __cplusplus
 }
 #endif
