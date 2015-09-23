@@ -1356,8 +1356,8 @@ static CDS_TPRIM_INLINE void cds_tprim_sleep_ms(cds_tprim_s32 ms)
     {
 #if defined(CDS_TPRIM_HAS_WINDOWS_THREADS)
         Sleep(ms);
-#elif define(CDS_TPRIM_HAS_POSIX_THREADS)
-        timespec req = {}, rem = {};
+#elif defined(CDS_TPRIM_HAS_POSIX_THREADS)
+        struct timespec req = {}, rem = {};
         req.tv_sec = ms / 1000;
         req.tv_nsec = (ms % 1000) * 1000000;
         nanosleep(&req, &rem);
