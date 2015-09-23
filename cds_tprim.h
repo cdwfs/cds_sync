@@ -1350,11 +1350,63 @@ static cds_tprim_s32 cds_tprim_cache_line_size(void)
 }
 #endif
 
+static CDS_TPRIM_INLINE void cds_tprim_sleep_ms(cds_tprim_s32 ms)
+{
+    if (ms < 0) return;
+    {
+#if defined(CDS_TPRIM_HAS_WINDOWS_THREADS)
+        Sleep(ms);
+#elif define(CDS_TPRIM_HAS_POSIX_THREADS)
+        timespec req = {}, rem = {};
+        req.tv_sec = ms / 1000;
+        req.tv_nsec = (ms % 1000) * 1000000;
+        nanosleep(&req, &rem);
+#else
+#   error Unsupported platform
+#endif
+    }
+}
+
+typedef enum
+{
+    kTprimTestDancers    = 0,
+    kTprimTestEventcount = 1,
+
+    kNumTprimTests
+} TprimTest;
+static const char *g_testNames[kNumTprimTests] =
+{
+    "testDancers",
+    "testEventCount",
+};
+static cds_tprim_s32 g_testCount;
+static TprimTest g_currentTest;
+static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC watchdogFunc(void *voidArgs)
+{
+    cds_tprim_s32 lastTestCount = 0;
+    const cds_tprim_s32 intervalMs = 5000;
+    CDS_TPRIM_UNUSED(voidArgs);
+    for(;;)
+    {
+        cds_tprim_sleep_ms(intervalMs);
+        if (lastTestCount == g_testCount)
+        {
+            printf("ERROR: %s has been running for >%.1f seconds; check for deadlock.\n",
+                g_testNames[g_currentTest], (float)intervalMs / 1000.0f);
+        }
+        lastTestCount = g_testCount;
+        printf("%9d tests complete; %9d errors detected.\n", lastTestCount, g_errorCount);
+    }
+}
+
 int main(int argc, char *argv[])
 {
+    cds_tprim_s32 cacheLineSizeL1 = cds_tprim_cache_line_size();
+    unsigned int seed = (unsigned int)time(NULL);
+    cds_tprim_thread_t watchdogThread;
     CDS_TPRIM_UNUSED(argc);
     CDS_TPRIM_UNUSED(argv);
-    cds_tprim_s32 cacheLineSizeL1 = cds_tprim_cache_line_size();
+
     printf("L1 line size: %d\n", (int)cacheLineSizeL1);
     if (CDS_TPRIM_L1_CACHE_LINE_SIZE < cacheLineSizeL1)
     {
@@ -1362,17 +1414,20 @@ int main(int argc, char *argv[])
             (int)cacheLineSizeL1);
     }
 
-    unsigned int seed = (unsigned int)time(NULL);
     printf("random seed: 0x%08X\n", seed);
     srand(seed);
 
+    cds_tprim_thread_create(&watchdogThread, watchdogFunc, NULL);
+
     for(;;)
     {
+        g_currentTest = kTprimTestDancers;
         testDancers();
-        printf("error count after testDancers():    %d\n", g_errorCount);
+        g_testCount += 1;
 
+        g_currentTest = kTprimTestEventcount;
         testEventcount();
-        printf("error count after testEventcount(): %d\n", g_errorCount);
+        g_testCount += 1;
     }
 }
 #endif /*------------------- send self-test section ------------*/
