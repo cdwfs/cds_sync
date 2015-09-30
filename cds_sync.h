@@ -7,7 +7,7 @@
  * implementations.
  *
  * For a unit test on gcc/Clang:
- *   cc -Wall -pthread -std=c89 -g -x c -DCDS_SYNC_TEST -o test_cds_sync.exe cds_sync.h
+ *   cc -Wall -pthread -std=c89 -D_POSIX_C_SOURCE=199309L -g -x c -DCDS_SYNC_TEST -o test_cds_sync.exe cds_sync.h
  * Clang users may also pass -fsanitize=thread to enable Clang's
  * ThreadSanitizer feature.
  *
@@ -1411,10 +1411,12 @@ static cds_sync_threadproc_return_t CDS_SYNC_THREADPROC watchdogFunc(void *voidA
         {
             printf("ERROR: %s has been running for >%.1f seconds; check for deadlock.\n",
                 g_testNames[g_currentTest], (float)intervalMs / 1000.0f);
+            break;
         }
         lastTestCount = g_testCount;
         printf("%9d tests complete; %9d errors detected.\n", lastTestCount, g_errorCount);
     }
+    return 0;
 }
 
 int main(int argc, char *argv[])
