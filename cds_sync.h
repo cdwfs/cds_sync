@@ -1,4 +1,6 @@
 /* cds_sync.h -- portable threading/concurrency primitives in C89
+ *               No warranty implied; use at your own risk.
+ *
  * Do this:
  *   #define CDS_SYNC_IMPLEMENTATION
  * before including this file in *one* C/C++ file to provide the function
@@ -14,6 +16,11 @@
  *   cl -W4 -nologo -TC -DCDS_SYNC_TEST /Fetest_cds_sync.exe cds_sync.h
  * Debug-mode:
  *   cl -W4 -Od -Z7 -FC -MTd -nologo -TC -DCDS_SYNC_TEST /Fetest_cds_sync.exe cds_sync.h
+ *
+ * LICENSE:
+ * This software is in the public domain. Where that dedication is not
+ * recognized, you are granted a perpetual, irrevocable license to
+ * copy, distribute, and modify this file as you see fit.
  */
 
 #if !defined(CDS_SYNC_H)
