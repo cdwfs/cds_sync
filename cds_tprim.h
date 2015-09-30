@@ -237,36 +237,32 @@ extern "C"
     }
 
     /**
-     * cds_tprim_condvar_t -- currently just a portable wrapper around
-     * platform-specific condition variable implementation, with no
-     * extra fancy functionality.
-     *
-     * Note that since platform condition variables are often tightly
-     * coupled to platform mutexes, I've folded the associated mutex
-     * into this object as well.
+     * cds_tprim_monitor_t -- currently just a portable wrapper around
+     * platform-specific condition variable and mutex implementations,
+     * with no extra fancy functionality.
      */
     typedef struct
     {
 #if defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
-        CONDITION_VARIABLE cond;
+        CONDITION_VARIABLE cv;
         CRITICAL_SECTION crit;
 #elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
-        pthread_cond_t cond;
+        pthread_cond_t cv;
         pthread_mutex_t mtx;
 #else
 #   error Unsupported compiler/platform
 #endif
-    } cds_tprim_condvar_t;
+    } cds_tprim_monitor_t;
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
-    int cds_tprim_condvar_init(cds_tprim_condvar_t *cv)
+    int cds_tprim_monitor_init(cds_tprim_monitor_t *mon)
     {
 #if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
-        InitializeConditionVariable(&cv->cond);
-        InitializeCriticalSection(&cv->crit);
+        InitializeConditionVariable(&mon->cv);
+        InitializeCriticalSection(&mon->crit);
 #elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
-        pthread_cond_init(&cv->cond, 0);
-        pthread_mutex_init(&cv->mtx, 0);
+        pthread_cond_init(&mon->cv, 0);
+        pthread_mutex_init(&mon->mtx, 0);
 #else
 #   error Unsupported compiler/platform
 #endif
@@ -274,74 +270,74 @@ extern "C"
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
-    void cds_tprim_condvar_destroy(cds_tprim_condvar_t *cv)
+    void cds_tprim_monitor_destroy(cds_tprim_monitor_t *mon)
     {
 #if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
         /* Windows CONDITION_VARIABLE object do not need to be destroyed. */
-        DeleteCriticalSection(&cv->crit);
+        DeleteCriticalSection(&mon->crit);
 #elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
-        pthread_cond_destroy(&cv->cond);
-        pthread_mutex_destroy(&cv->mtx);
+        pthread_cond_destroy(&mon->cv);
+        pthread_mutex_destroy(&mon->mtx);
 #else
 #   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
-    void cds_tprim_condvar_lock(cds_tprim_condvar_t *cv)
+    void cds_tprim_monitor_lock(cds_tprim_monitor_t *mon)
     {
 #if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
-        EnterCriticalSection(&cv->crit);
+        EnterCriticalSection(&mon->crit);
 #elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
-        pthread_mutex_lock(&cv->mtx);
+        pthread_mutex_lock(&mon->mtx);
 #else
 #   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
-    void cds_tprim_condvar_unlock(cds_tprim_condvar_t *cv)
+    void cds_tprim_monitor_unlock(cds_tprim_monitor_t *mon)
     {
 #if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
-        LeaveCriticalSection(&cv->crit);
+        LeaveCriticalSection(&mon->crit);
 #elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
-        pthread_mutex_unlock(&cv->mtx);
+        pthread_mutex_unlock(&mon->mtx);
 #else
 #   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
-    void cds_tprim_condvar_unlock_and_wait(cds_tprim_condvar_t *cv)
+    void cds_tprim_monitor_unlock_and_wait(cds_tprim_monitor_t *mon)
     {
 #if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
-        SleepConditionVariableCS(&cv->cond, &cv->crit, INFINITE);
+        SleepConditionVariableCS(&mon->cv, &mon->crit, INFINITE);
 #elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
-        pthread_cond_wait(&cv->cond, &cv->mtx);
+        pthread_cond_wait(&mon->cv, &mon->mtx);
 #else
 #   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
-    void cds_tprim_condvar_signal(cds_tprim_condvar_t *cv)
+    void cds_tprim_monitor_signal(cds_tprim_monitor_t *mon)
     {
 #if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
-        WakeConditionVariable(&cv->cond);
+        WakeConditionVariable(&mon->cv);
 #elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
-        pthread_cond_signal(&cv->cond);
+        pthread_cond_signal(&mon->cv);
 #else
 #   error Unsupported compiler/platform
 #endif
     }
 
     CDS_TPRIM_DEF CDS_TPRIM_INLINE
-    void cds_tprim_condvar_broadcast(cds_tprim_condvar_t *cv)
+    void cds_tprim_monitor_broadcast(cds_tprim_monitor_t *mon)
     {
 #if   defined(CDS_TPRIM_HAS_WINDOWS_CONDVARS)
-        WakeAllConditionVariable(&cv->cond);
+        WakeAllConditionVariable(&mon->cv);
 #elif defined(CDS_TPRIM_HAS_POSIX_CONDVARS)
-        pthread_cond_broadcast(&cv->cond);
+        pthread_cond_broadcast(&mon->cv);
 #else
 #   error Unsupported compiler/platform
 #endif
@@ -357,7 +353,7 @@ extern "C"
     typedef struct
     {
         cds_tprim_atomic_s32 count;
-        cds_tprim_condvar_t cv;
+        cds_tprim_monitor_t mon;
     } cds_tprim_eventcount_t;
 
     /** @brief Initialize an eventcount object. */
@@ -733,13 +729,13 @@ cds_tprim_s32 cds_tprim_fusem_getvalue(cds_tprim_fusem_t *sem)
 /* cds_tprim_eventcount_t */
 int cds_tprim_eventcount_init(cds_tprim_eventcount_t *ec)
 {
-    cds_tprim_condvar_init(&ec->cv);
+    cds_tprim_monitor_init(&ec->mon);
     cds_tprim_atomic_store_s32(&ec->count.n, 0, CDS_TPRIM_ATOMIC_RELAXED);
     return 0;
 }
 void cds_tprim_eventcount_destroy(cds_tprim_eventcount_t *ec)
 {
-    cds_tprim_condvar_destroy(&ec->cv);
+    cds_tprim_monitor_destroy(&ec->mon);
 }
 cds_tprim_s32 cds_tprim_eventcount_get(cds_tprim_eventcount_t *ec)
 {
@@ -750,24 +746,24 @@ void cds_tprim_eventcount_signal(cds_tprim_eventcount_t *ec)
     cds_tprim_s32 key = cds_tprim_atomic_fetch_add_s32(&ec->count.n, 0, CDS_TPRIM_ATOMIC_SEQ_CST);
     if (key & 1)
     {
-        cds_tprim_condvar_lock(&ec->cv);
+        cds_tprim_monitor_lock(&ec->mon);
         while (!cds_tprim_atomic_compare_exchange_s32(&ec->count.n, &key, (key+2) & ~1,
                 1, CDS_TPRIM_ATOMIC_SEQ_CST, CDS_TPRIM_ATOMIC_SEQ_CST))
         {
             /* spin */
         }
-        cds_tprim_condvar_unlock(&ec->cv);
-        cds_tprim_condvar_broadcast(&ec->cv);
+        cds_tprim_monitor_unlock(&ec->mon);
+        cds_tprim_monitor_broadcast(&ec->mon);
     }
 }
 void cds_tprim_eventcount_wait(cds_tprim_eventcount_t *ec, cds_tprim_s32 cmp)
 {
-    cds_tprim_condvar_lock(&ec->cv);
+    cds_tprim_monitor_lock(&ec->mon);
     if ((cds_tprim_atomic_load_s32(&ec->count.n, CDS_TPRIM_ATOMIC_SEQ_CST) & ~1) == (cmp & ~1))
     {
-        cds_tprim_condvar_unlock_and_wait(&ec->cv);
+        cds_tprim_monitor_unlock_and_wait(&ec->mon);
     }
-    cds_tprim_condvar_unlock(&ec->cv);
+    cds_tprim_monitor_unlock(&ec->mon);
 }
 
 
@@ -1168,12 +1164,12 @@ static void testDancers(void)
 }
 
 #define CDS_TEST_QUEUE_LENGTH 100
-/* #define CDS_TEST_QUEUE_ENABLE_BROKEN_CV */
+/* #define CDS_TEST_QUEUE_ENABLE_BROKEN_MODE */
 typedef struct cds_test_queue_args_t
 {
     cds_tprim_futex_t mtx; /* protects queue; too lazy to write a lockless */
-#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
-    cds_tprim_condvar_t cv;
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_MODE)
+    cds_tprim_monitor_t mon;
 #else
     cds_tprim_eventcount_t ec;
 #endif
@@ -1203,17 +1199,17 @@ static cds_tprim_threadproc_return_t CDS_TPRIM_THREADPROC testQueuePopper(void *
             args->output[abs(n)] += n;
             continue;
         }
-#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
-        /* A pure CV-based approach suffers from lost wakeups; if the cond_signal()
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_MODE)
+        /* A pure monitor-based approach suffers from lost wakeups; if the monitor_signal()
            occurs between the test for an empty queue and the call to
-           condvar_unlock_and_wait(), we won't wake up! */
+           monitor_unlock_and_wait(), we won't wake up! */
 
         /* A yield here isn't necessary, but helps to encourage race conditions
            (if any) to manifest. */
         cds_tprim_thread_yield();
-        cds_tprim_condvar_lock(&args->cv);
-        cds_tprim_condvar_unlock_and_wait(&args->cv);
-        cds_tprim_condvar_unlock(&args->cv);
+        cds_tprim_monitor_lock(&args->mon);
+        cds_tprim_monitor_unlock_and_wait(&args->mon);
+        cds_tprim_monitor_unlock(&args->mon);
 #else
         /* queue was empty; get() the EC and try again */
         count = cds_tprim_eventcount_get(&args->ec);
@@ -1250,8 +1246,8 @@ static void testEventcount(void)
     const int kNumPoppers = 8;
 
     cds_tprim_futex_init(&args.mtx);
-#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
-    cds_tprim_condvar_init(&args.cv);
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_MODE)
+    cds_tprim_monitor_init(&args.mon);
 #else
     cds_tprim_eventcount_init(&args.ec);
 #endif
@@ -1276,8 +1272,8 @@ static void testEventcount(void)
         if (args.writeIndex + numPushes > CDS_TEST_QUEUE_LENGTH)
             numPushes = CDS_TEST_QUEUE_LENGTH - args.writeIndex;
         cds_tprim_atomic_fetch_add_s32(&args.writeIndex, numPushes, CDS_TPRIM_ATOMIC_SEQ_CST);
-#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
-        cds_tprim_condvar_broadcast(&args.cv);
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_MODE)
+        cds_tprim_monitor_broadcast(&args.mon);
 #else
         cds_tprim_eventcount_signal(&args.ec);
 #endif
@@ -1302,8 +1298,8 @@ static void testEventcount(void)
     }
 
     cds_tprim_futex_destroy(&args.mtx);
-#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_CV)
-    cds_tprim_condvar_destroy(&args.cv);
+#if defined(CDS_TEST_QUEUE_ENABLE_BROKEN_MODE)
+    cds_tprim_monitor_destroy(&args.mon);
 #else
     cds_tprim_eventcount_destroy(&args.ec);
 #endif
